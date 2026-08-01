@@ -77,7 +77,8 @@
     <string name="field_unit">Bookcase or unit</string>
     <string name="field_shelf">Shelf row</string>
     <string name="field_position_note">Position note</string>
-    <string name="field_purchase_date">Date purchased (YYYY-MM-DD)</string>
+    <string name="field_purchase_date">Date purchased</string>
+    <string name="date_format_hint">YYYY-MM-DD</string>
     <string name="field_cost">Cost</string>
     <string name="field_select_placeholder">Select</string>
     <string name="location_no_shelves_hint">No shelves yet. Add one from the Shelves tab first, then it will appear here.</string>

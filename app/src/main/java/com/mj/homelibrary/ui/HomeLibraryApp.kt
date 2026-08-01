@@ -2681,6 +2681,7 @@ private fun AddBookSheet(
                     label = R.string.field_purchase_date,
                     modifier = Modifier.weight(1f),
                     monospace = true,
+                    placeholder = R.string.date_format_hint,
                 )
                 TextFieldLine(
                     value = draft.cost,
@@ -3109,12 +3110,14 @@ private fun TextFieldLine(
     modifier: Modifier = Modifier,
     singleLine: Boolean = true,
     monospace: Boolean = false,
+    @StringRes placeholder: Int? = null,
 ) {
     OutlinedTextField(
         modifier = modifier.fillMaxWidth(),
         value = value,
         onValueChange = onValueChange,
-        label = { Text(stringResource(label)) },
+        label = { Text(stringResource(label), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        placeholder = placeholder?.let { { Text(stringResource(it)) } },
         singleLine = singleLine,
         minLines = if (singleLine) 1 else 3,
         shape = RoundedCornerShape(14.dp),
