@@ -77,6 +77,8 @@
     <string name="field_unit">Bookcase or unit</string>
     <string name="field_shelf">Shelf row</string>
     <string name="field_position_note">Position note</string>
+    <string name="field_purchase_date">Date purchased (YYYY-MM-DD)</string>
+    <string name="field_cost">Cost</string>
     <string name="field_borrower_name">Borrower name</string>
     <string name="field_borrower_contact">Borrower contact</string>
     <string name="field_due_date">Expected return date</string>
@@ -146,6 +148,10 @@
     <string name="section_location">Location</string>
     <string name="section_reading">Reading</string>
     <string name="section_cover">Cover</string>
+    <string name="section_ownership">Ownership</string>
+    <string name="purchased_on_label">Purchased %1$s</string>
+    <string name="cost_label">%1$s</string>
+    <string name="stats_library_value">Library value</string>
     <string name="location_section_hint">Room, bookcase, shelf row, and optional position note.</string>
     <string name="section_backup_restore">Backup and restore</string>
     <string name="settings_appearance">Appearance</string>

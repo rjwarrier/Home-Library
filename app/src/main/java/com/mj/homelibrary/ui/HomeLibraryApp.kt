@@ -94,6 +94,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Outbound
+import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.Place
@@ -1750,6 +1751,9 @@ private fun StatsScreen(
                     StatTile(R.string.stats_unread, unread, MaterialTheme.colorScheme.surfaceVariant, Modifier.weight(1f))
                 }
             }
+            if (state.stats.totalLibraryValue > 0.0) {
+                item { LibraryValueCard(state.stats.totalLibraryValue) }
+            }
             item { LanguageBarCard(state.stats.languages) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_md))) {
@@ -1797,6 +1801,27 @@ private fun StatTile(@StringRes label: Int, value: Int, color: Color, modifier: 
         Column(modifier = Modifier.padding(14.dp)) {
             Text(stringResource(label).uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value.toString(), style = MaterialTheme.typography.headlineMedium)
+        }
+    }
+}
+
+@Composable
+private fun LibraryValueCard(totalValue: Double) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Outlined.Payments, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text(stringResource(R.string.stats_library_value), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+            }
+            Text(totalValue.displayCost(), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
         }
     }
 }
@@ -2644,6 +2669,22 @@ private fun AddBookSheet(
                 }
             }
             RatingEditor(rating = draft.rating, onRatingChange = { draft = draft.copy(rating = it) })
+            Text(stringResource(R.string.section_ownership).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextFieldLine(
+                    value = draft.purchaseDate,
+                    onValueChange = { draft = draft.copy(purchaseDate = it) },
+                    label = R.string.field_purchase_date,
+                    modifier = Modifier.weight(1f),
+                    monospace = true,
+                )
+                TextFieldLine(
+                    value = draft.cost,
+                    onValueChange = { draft = draft.copy(cost = it) },
+                    label = R.string.field_cost,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             ShelfLocationField(draft = draft, onDraftChange = { draft = it })
             Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -3109,6 +3150,10 @@ private fun BookDetailSheet(
                     item.book.publishedYear?.let { MetadataChip(Icons.Outlined.CalendarToday, stringResource(R.string.published_year_label, it)) }
                     item.book.pageCount?.let { MetadataChip(Icons.Outlined.Description, stringResource(R.string.pages_label, it)) }
                     MetadataChip(Icons.Outlined.Bookmark, stringResource(ReadStatusCode.fromCode(item.book.readStatusCode).labelRes))
+                    item.book.purchaseDateEpochMillis?.let {
+                        MetadataChip(Icons.Outlined.CalendarToday, stringResource(R.string.purchased_on_label, it.displayDate(context)))
+                    }
+                    item.book.cost?.let { MetadataChip(Icons.Outlined.Payments, it.displayCost()) }
                 }
                 LocationCard(item.location.displayBreadcrumb(context), onMove = onMove)
                 if (item.activeLoan != null) {

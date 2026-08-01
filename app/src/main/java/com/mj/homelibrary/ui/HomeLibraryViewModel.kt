@@ -424,6 +424,8 @@ data class BookDraft(
     val unit: String = "",
     val shelf: String = "",
     val positionNote: String = "",
+    val purchaseDate: String = "",
+    val cost: String = "",
 ) {
     fun applyMetadata(metadata: BookMetadata): BookDraft = copy(
         title = metadata.title,
@@ -476,6 +478,8 @@ data class BookDraft(
             readStatusCode = readStatusCode,
             locationId = locationId,
             positionNote = positionNote.trim().takeIf(String::isNotBlank),
+            purchaseDateEpochMillis = purchaseDate.toEpochMillisOrNull(),
+            cost = cost.toDoubleOrNull()?.takeIf { it > 0.0 },
         )
     }
 }
@@ -496,6 +500,7 @@ data class LibraryStats(
     val languages: Map<String, Int> = emptyMap(),
     val genres: Map<String, Int> = emptyMap(),
     val mostBorrowed: List<BookBorrowStat> = emptyList(),
+    val totalLibraryValue: Double = 0.0,
 ) {
     companion object {
         fun from(books: List<BookEntity>, loans: List<LoanEntity>, activeLoans: List<LoanEntity>): LibraryStats {
@@ -519,6 +524,7 @@ data class LibraryStats(
                         bookById[entry.key]?.let { book -> BookBorrowStat(book.title, entry.value) }
                     }
                     .take(5),
+                totalLibraryValue = books.sumOf { it.cost ?: 0.0 },
             )
         }
     }
@@ -549,7 +555,12 @@ fun BookEntity.toBookDraft(): BookDraft = BookDraft(
     readStatusCode = readStatusCode,
     locationId = locationId,
     positionNote = positionNote.orEmpty(),
+    purchaseDate = purchaseDateEpochMillis?.toIsoDateString().orEmpty(),
+    cost = cost?.let { if (it == it.toLong().toDouble()) it.toLong().toString() else it.toString() }.orEmpty(),
 )
+
+private fun Long.toIsoDateString(): String =
+    java.time.Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate().toString()
 
 private fun Long.toLocalYear(): Int =
     java.time.Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).year

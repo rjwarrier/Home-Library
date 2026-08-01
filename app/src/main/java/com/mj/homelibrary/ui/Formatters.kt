@@ -5,6 +5,7 @@ import com.mj.homelibrary.R
 import com.mj.homelibrary.data.LanguageCode
 import com.mj.homelibrary.data.entity.LocationEntity
 import java.text.DateFormat
+import java.text.NumberFormat
 import java.util.Date
 
 fun LocationEntity?.displayBreadcrumb(context: Context): String {
@@ -26,3 +27,5 @@ fun Long?.displayDate(context: Context): String =
 
 fun languageLabel(context: Context, code: String): String =
     context.getString(LanguageCode.fromCode(code).labelRes)
+
+fun Double.displayCost(): String = NumberFormat.getCurrencyInstance().format(this)
