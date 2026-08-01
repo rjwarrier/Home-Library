@@ -46,4 +46,5 @@ data class BookEntity(
     val addedDateEpochMillis: Long = System.currentTimeMillis(),
     val purchaseDateEpochMillis: Long? = null,
     val cost: Double? = null,
+    val seriesName: String? = null,
 )

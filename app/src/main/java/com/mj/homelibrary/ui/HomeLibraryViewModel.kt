@@ -389,6 +389,8 @@ data class LibraryFilters(
             append(item.book.isbn10.orEmpty())
             append(' ')
             append(item.book.isbn13.orEmpty())
+            append(' ')
+            append(item.book.seriesName.orEmpty())
         }.searchKey()
         return normalizedQuery in haystack
     }
@@ -426,6 +428,7 @@ data class BookDraft(
     val positionNote: String = "",
     val purchaseDate: String = "",
     val cost: String = "",
+    val seriesName: String = "",
 ) {
     fun applyMetadata(metadata: BookMetadata): BookDraft = copy(
         title = metadata.title,
@@ -480,6 +483,7 @@ data class BookDraft(
             positionNote = positionNote.trim().takeIf(String::isNotBlank),
             purchaseDateEpochMillis = purchaseDate.toEpochMillisOrNull(),
             cost = cost.toDoubleOrNull()?.takeIf { it > 0.0 },
+            seriesName = seriesName.trim().takeIf(String::isNotBlank),
         )
     }
 }
@@ -557,6 +561,7 @@ fun BookEntity.toBookDraft(): BookDraft = BookDraft(
     positionNote = positionNote.orEmpty(),
     purchaseDate = purchaseDateEpochMillis?.toIsoDateString().orEmpty(),
     cost = cost?.let { if (it == it.toLong().toDouble()) it.toLong().toString() else it.toString() }.orEmpty(),
+    seriesName = seriesName.orEmpty(),
 )
 
 private fun Long.toIsoDateString(): String =

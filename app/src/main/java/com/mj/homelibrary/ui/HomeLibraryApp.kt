@@ -161,7 +161,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -510,6 +512,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
 
     val authorSuggestions = remember(state.allBooks) { state.allBooks.flatMap { it.authors }.distinctSorted() }
     val tagSuggestions = remember(state.allBooks) { state.allBooks.flatMap { it.tags }.distinctSorted() }
+    val seriesSuggestions = remember(state.allBooks) { state.allBooks.mapNotNull { it.seriesName }.distinctSorted() }
     val bulkProgress = bulkQueue.takeIf { it.isNotEmpty() }?.let { bulkIndex + 1 to it.size }
 
     if (showAddBook) {
@@ -521,6 +524,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             fillOnlyEmpty = false,
             authorSuggestions = authorSuggestions,
             tagSuggestions = tagSuggestions,
+            seriesSuggestions = seriesSuggestions,
             locations = state.locations,
             lookupInProgress = state.transient.lookupInProgress,
             bulkProgress = bulkProgress,
@@ -545,6 +549,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             fillOnlyEmpty = true,
             authorSuggestions = authorSuggestions,
             tagSuggestions = tagSuggestions,
+            seriesSuggestions = seriesSuggestions,
             locations = state.locations,
             lookupInProgress = state.transient.lookupInProgress,
             bulkProgress = bulkProgress.takeIf { enrichFromScan },
@@ -908,11 +913,12 @@ private fun SearchPill(query: String, onQueryChange: (String) -> Unit) {
 @Composable
 private fun SortMenu(selected: BookSortCode, onSortChange: (BookSortCode) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    val dismissKeyboard = rememberDismissKeyboard()
     Box {
         HeaderIconButton(
             icon = Icons.Outlined.Sort,
             contentDescription = stringResource(R.string.content_description_sort),
-            onClick = { expanded = true },
+            onClick = { dismissKeyboard(); expanded = true },
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             BookSortCode.entries.forEach { sort ->
@@ -946,6 +952,7 @@ private fun FilterStrip(
     var genreExpanded by remember { mutableStateOf(false) }
     var languageExpanded by remember { mutableStateOf(false) }
     var locationExpanded by remember { mutableStateOf(false) }
+    val dismissKeyboard = rememberDismissKeyboard()
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_sm)),
         contentPadding = PaddingValues(vertical = dimensionResource(R.dimen.space_xs)),
@@ -956,7 +963,7 @@ private fun FilterStrip(
                     selected = state.filters.tag != null,
                     label = state.filters.tag ?: stringResource(R.string.filter_genre),
                     trailing = Icons.Outlined.ExpandMore,
-                    onClick = { genreExpanded = true },
+                    onClick = { dismissKeyboard(); genreExpanded = true },
                 )
                 DropdownMenu(expanded = genreExpanded, onDismissRequest = { genreExpanded = false }) {
                     DropdownMenuItem(
@@ -986,7 +993,7 @@ private fun FilterStrip(
                         selected = selectedLanguage != null,
                         label = selectedLanguage?.let { languageLabel(context, it) } ?: stringResource(R.string.filter_language),
                         trailing = Icons.Outlined.ExpandMore,
-                        onClick = { languageExpanded = true },
+                        onClick = { dismissKeyboard(); languageExpanded = true },
                     )
                     DropdownMenu(expanded = languageExpanded, onDismissRequest = { languageExpanded = false }) {
                         DropdownMenuItem(
@@ -1034,7 +1041,7 @@ private fun FilterStrip(
                     selected = selectedLocation != null,
                     label = selectedLocation?.displayBreadcrumb(context) ?: stringResource(R.string.filter_location),
                     trailing = Icons.Outlined.ExpandMore,
-                    onClick = { locationExpanded = true },
+                    onClick = { dismissKeyboard(); locationExpanded = true },
                 )
                 DropdownMenu(expanded = locationExpanded, onDismissRequest = { locationExpanded = false }) {
                     DropdownMenuItem(
@@ -1060,6 +1067,18 @@ private fun FilterStrip(
 }
 
 private val ExpressiveSpring = spring<Float>(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
+
+@Composable
+private fun rememberDismissKeyboard(): () -> Unit {
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    return remember(focusManager, keyboardController) {
+        {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+        }
+    }
+}
 
 @Composable
 private fun rememberPressScale(interactionSource: InteractionSource): androidx.compose.runtime.State<Float> {
@@ -2500,6 +2519,7 @@ private fun AddBookSheet(
     fillOnlyEmpty: Boolean,
     authorSuggestions: List<String>,
     tagSuggestions: List<String>,
+    seriesSuggestions: List<String>,
     locations: List<LocationEntity>,
     lookupInProgress: Boolean,
     bulkProgress: Pair<Int, Int>? = null,
@@ -2644,6 +2664,12 @@ private fun AddBookSheet(
             Text(stringResource(R.string.section_metadata).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextFieldLine(draft.title, { draft = draft.copy(title = it) }, R.string.field_title)
             TextFieldLine(draft.originalScriptTitle, { draft = draft.copy(originalScriptTitle = it) }, R.string.field_original_title)
+            SuggestedTextFieldLine(
+                value = draft.seriesName,
+                onValueChange = { draft = draft.copy(seriesName = it) },
+                suggestions = seriesSuggestions,
+                label = R.string.field_series_name,
+            )
             SuggestedTextFieldLine(
                 value = draft.authors,
                 onValueChange = { draft = draft.copy(authors = it) },
@@ -3050,6 +3076,7 @@ private fun DropdownSelectField(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val enabled = options.isNotEmpty()
+    val dismissKeyboard = rememberDismissKeyboard()
     Box(modifier = modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -3063,7 +3090,7 @@ private fun DropdownSelectField(
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
-                    .clickable(enabled = enabled) { expanded = true },
+                    .clickable(enabled = enabled) { dismissKeyboard(); expanded = true },
             ) {
                 Row(
                     modifier = Modifier
@@ -3266,6 +3293,13 @@ private fun BookDetailSheet(
                 Text(item.book.title, style = MaterialTheme.typography.headlineSmall)
                 item.book.originalScriptTitle?.let {
                     Text(it, style = MaterialTheme.typography.titleMedium, lineHeight = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                item.book.seriesName?.let {
+                    Text(
+                        stringResource(R.string.series_label, it),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
                 Text(item.book.authors.displayAuthors(context), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
