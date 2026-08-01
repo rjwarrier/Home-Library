@@ -2998,37 +2998,114 @@ private fun LocationDropdownFields(
     onUnitChange: (String) -> Unit,
     onShelfChange: (String) -> Unit,
 ) {
-    val roomSuggestions = remember(locations) { locations.map { it.room }.distinctSorted() }
-    val unitSuggestions = remember(locations, room) {
+    val roomOptions = remember(locations) { locations.map { it.room }.distinctSorted() }
+    val unitOptions = remember(locations, room) {
         locations.filter { it.room.equals(room, ignoreCase = true) }.map { it.unit }.distinctSorted()
     }
-    val shelfSuggestions = remember(locations, room, unit) {
+    val shelfOptions = remember(locations, room, unit) {
         locations.filter { it.room.equals(room, ignoreCase = true) && it.unit.equals(unit, ignoreCase = true) }
             .map { it.shelf }
             .distinctSorted()
     }
+    if (locations.isEmpty()) {
+        Text(
+            stringResource(R.string.location_no_shelves_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SuggestedTextFieldLine(
+        DropdownSelectField(
             value = room,
-            onValueChange = onRoomChange,
-            suggestions = roomSuggestions,
+            onValueChange = {
+                onRoomChange(it)
+                onUnitChange("")
+                onShelfChange("")
+            },
+            options = roomOptions,
             label = R.string.field_room,
             modifier = Modifier.weight(1f),
         )
-        SuggestedTextFieldLine(
+        DropdownSelectField(
             value = unit,
-            onValueChange = onUnitChange,
-            suggestions = unitSuggestions,
+            onValueChange = {
+                onUnitChange(it)
+                onShelfChange("")
+            },
+            options = unitOptions,
             label = R.string.field_unit,
             modifier = Modifier.weight(1f),
         )
     }
-    SuggestedTextFieldLine(
+    DropdownSelectField(
         value = shelf,
         onValueChange = onShelfChange,
-        suggestions = shelfSuggestions,
+        options = shelfOptions,
         label = R.string.field_shelf,
     )
+}
+
+@Composable
+private fun DropdownSelectField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    options: List<String>,
+    @StringRes label: Int,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val enabled = options.isNotEmpty()
+    Box(modifier = modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = stringResource(label),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
+                    .clickable(enabled = enabled) { expanded = true },
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = value.ifBlank { stringResource(R.string.field_select_placeholder) },
+                        color = if (value.isBlank()) {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = {
+                        onValueChange(option)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
 }
 
 @Composable
