@@ -30,9 +30,10 @@ class HomeLibraryRepository(
 
     suspend fun lookupBook(isbn: String): Result<BookMetadata> = lookupService.lookup(isbn)
 
-    suspend fun hasDuplicateIsbn(isbn: String): Boolean {
-        val normalized = isbn.filter(Char::isDigit)
-        return normalized.isNotBlank() && bookDao.findByIsbn(normalized) != null
+    suspend fun hasDuplicateIsbn(isbn: String, ignoreBookId: Long? = null): Boolean {
+        val normalized = isbn.normalizedIsbn()
+        val existing = if (normalized.isNotBlank()) bookDao.findByIsbn(normalized) else null
+        return existing != null && existing.id != ignoreBookId
     }
 
     suspend fun saveBook(
@@ -60,6 +61,26 @@ class HomeLibraryRepository(
         bookDao.getAll()
             .filter { it.id in bookIds }
             .forEach { bookDao.update(it.copy(locationId = locationId)) }
+    }
+
+    suspend fun moveBook(bookId: Long, room: String, unit: String, shelf: String, positionNote: String?) {
+        val book = bookDao.getAll().firstOrNull { it.id == bookId } ?: return
+        val locationId = locationDao.getOrCreate(room, unit, shelf)
+        bookDao.update(book.copy(locationId = locationId, positionNote = positionNote?.trim()?.takeIf(String::isNotBlank)))
+    }
+
+    suspend fun addShelf(room: String, unit: String, shelf: String) {
+        if (room.isBlank() || unit.isBlank() || shelf.isBlank()) return
+        locationDao.getOrCreate(room, unit, shelf)
+    }
+
+    suspend fun updateBookRating(bookId: Long, rating: Float) {
+        val book = bookDao.getAll().firstOrNull { it.id == bookId } ?: return
+        bookDao.update(book.copy(rating = rating.takeIf { it > 0f }))
+    }
+
+    suspend fun deleteBook(book: BookEntity) {
+        bookDao.delete(book)
     }
 
     suspend fun loanBook(
@@ -96,6 +117,12 @@ class HomeLibraryRepository(
     suspend fun exportCsv(uri: Uri) = backupRepository.exportCsv(uri)
 
     suspend fun importJson(uri: Uri) = backupRepository.importJson(uri)
+
+    suspend fun importCsv(uri: Uri) = backupRepository.importCsv(uri)
+
+    suspend fun exportCompleteBackup(uri: Uri) = backupRepository.exportCompleteBackup(uri)
+
+    suspend fun importCompleteBackup(uri: Uri) = backupRepository.importCompleteBackup(uri)
 
     private fun enqueueLoanReminder(
         workManager: WorkManager,

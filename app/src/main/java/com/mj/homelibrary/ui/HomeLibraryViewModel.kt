@@ -13,6 +13,9 @@ import com.mj.homelibrary.data.ReadStatusCode
 import com.mj.homelibrary.data.entity.BookEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
+import com.mj.homelibrary.data.normalizedIsbn
+import com.mj.homelibrary.data.normalizedIsbn10OrNull
+import com.mj.homelibrary.data.normalizedIsbn13OrNull
 import com.mj.homelibrary.data.remote.BookMetadata
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -55,7 +58,7 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
             activeLoans = activeLoans,
             filters = filters,
             transient = transient,
-            stats = LibraryStats.from(books, activeLoans),
+            stats = LibraryStats.from(books, loans, activeLoans),
         )
     }.stateIn(
         scope = viewModelScope,
@@ -91,14 +94,18 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         filters.update { it.copy(locationId = locationId) }
     }
 
+    fun setTag(tag: String?) {
+        filters.update { it.copy(tag = tag) }
+    }
+
     fun addBook(draft: BookDraft, onSaved: () -> Unit) {
         if (draft.title.isBlank()) {
             transient.update { it.copy(errorRes = R.string.error_title_required) }
             return
         }
         viewModelScope.launch {
-            val isbn = draft.isbn.filter(Char::isDigit)
-            if (isbn.isNotBlank() && repository.hasDuplicateIsbn(isbn)) {
+            val isbn = draft.isbn.normalizedIsbn()
+            if (isbn.isNotBlank() && repository.hasDuplicateIsbn(isbn, ignoreBookId = draft.id.takeIf { it > 0L })) {
                 transient.update { it.copy(errorRes = R.string.duplicate_isbn_warning) }
                 return@launch
             }
@@ -113,13 +120,47 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun deleteBook(book: BookEntity, onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            repository.deleteBook(book)
+            onDeleted()
+        }
+    }
+
+    fun moveBook(bookId: Long, room: String, unit: String, shelf: String, positionNote: String?, onMoved: () -> Unit) {
+        if (room.isBlank() || unit.isBlank() || shelf.isBlank()) return
+        viewModelScope.launch {
+            repository.moveBook(bookId, room, unit, shelf, positionNote)
+            onMoved()
+        }
+    }
+
+    fun addShelf(room: String, unit: String, shelf: String, onSaved: () -> Unit) {
+        if (room.isBlank() || unit.isBlank() || shelf.isBlank()) return
+        viewModelScope.launch {
+            repository.addShelf(room, unit, shelf)
+            onSaved()
+        }
+    }
+
+    fun updateBookRating(bookId: Long, rating: Float) {
+        viewModelScope.launch {
+            repository.updateBookRating(bookId, rating)
+        }
+    }
+
     fun lookupIsbn(isbn: String, onResult: (BookMetadata?) -> Unit) {
         viewModelScope.launch {
-            transient.update { it.copy(lookupInProgress = true, errorRes = null) }
+            transient.update { it.copy(lookupInProgress = true, errorRes = null, failedLookupIsbn = null) }
             repository.lookupBook(isbn)
                 .onSuccess { onResult(it) }
                 .onFailure {
-                    transient.update { state -> state.copy(errorRes = R.string.isbn_lookup_failed) }
+                    transient.update { state ->
+                        state.copy(
+                            errorRes = R.string.isbn_lookup_failed,
+                            failedLookupIsbn = isbn.normalizedIsbn().takeIf(String::isNotBlank),
+                        )
+                    }
                     onResult(null)
                 }
             transient.update { it.copy(lookupInProgress = false) }
@@ -168,8 +209,29 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun importCsv(uri: Uri) {
+        viewModelScope.launch {
+            repository.importCsv(uri)
+            transient.update { it.copy(statusRes = R.string.backup_imported) }
+        }
+    }
+
+    fun exportCompleteBackup(uri: Uri) {
+        viewModelScope.launch {
+            repository.exportCompleteBackup(uri)
+            transient.update { it.copy(statusRes = R.string.backup_exported) }
+        }
+    }
+
+    fun importCompleteBackup(uri: Uri) {
+        viewModelScope.launch {
+            repository.importCompleteBackup(uri)
+            transient.update { it.copy(statusRes = R.string.backup_imported) }
+        }
+    }
+
     fun clearError() {
-        transient.update { it.copy(errorRes = null) }
+        transient.update { it.copy(errorRes = null, failedLookupIsbn = null) }
     }
 
     fun clearStatus() {
@@ -213,12 +275,14 @@ data class LibraryFilters(
     val readStatusCode: String? = null,
     val onLoanOnly: Boolean = false,
     val locationId: Long? = null,
+    val tag: String? = null,
 ) {
     fun matches(item: BookListItem): Boolean {
         if (languageCode != null && item.book.languageCode != languageCode) return false
         if (readStatusCode != null && item.book.readStatusCode != readStatusCode) return false
         if (onLoanOnly && !item.isOnLoan) return false
         if (locationId != null && item.location?.id != locationId) return false
+        if (tag != null && item.book.tags.none { it.equals(tag, ignoreCase = true) }) return false
         if (query.isBlank()) return true
         val normalizedQuery = query.searchKey()
         val haystack = buildString {
@@ -246,9 +310,11 @@ data class TransientState(
     val lookupInProgress: Boolean = false,
     val errorRes: Int? = null,
     val statusRes: Int? = null,
+    val failedLookupIsbn: String? = null,
 )
 
 data class BookDraft(
+    val id: Long = 0,
     val title: String = "",
     val subtitle: String = "",
     val authors: String = "",
@@ -259,11 +325,13 @@ data class BookDraft(
     val publisher: String = "",
     val publishedYear: String = "",
     val pageCount: String = "",
+    val coverImagePath: String = "",
     val coverUrl: String = "",
     val formatCode: String = "paperback",
     val notes: String = "",
     val rating: Float = 0f,
     val readStatusCode: String = ReadStatusCode.Unread.code,
+    val locationId: Long? = null,
     val room: String = "",
     val unit: String = "",
     val shelf: String = "",
@@ -273,33 +341,52 @@ data class BookDraft(
         title = metadata.title,
         subtitle = metadata.subtitle.orEmpty(),
         authors = metadata.authors.joinToString(", "),
+        tags = metadata.tags.joinToString(", "),
         publisher = metadata.publisher.orEmpty(),
         publishedYear = metadata.publishedYear?.toString().orEmpty(),
         pageCount = metadata.pageCount?.toString().orEmpty(),
+        coverImagePath = "",
         coverUrl = metadata.coverUrl.orEmpty(),
+        formatCode = metadata.formatCode ?: formatCode,
+        notes = metadata.notes.orEmpty(),
         languageCode = LanguageCode.fromCode(metadata.languageCode).code,
         isbn = metadata.isbn13 ?: metadata.isbn10 ?: isbn,
     )
 
+    fun applyMissingMetadata(metadata: BookMetadata, scannedIsbn: String): BookDraft = copy(
+        title = title.ifBlank { metadata.title },
+        subtitle = subtitle.ifBlank { metadata.subtitle.orEmpty() },
+        authors = authors.ifBlank { metadata.authors.joinToString(", ") },
+        tags = tags.ifBlank { metadata.tags.joinToString(", ") },
+        publisher = publisher.ifBlank { metadata.publisher.orEmpty() },
+        publishedYear = publishedYear.ifBlank { metadata.publishedYear?.toString().orEmpty() },
+        pageCount = pageCount.ifBlank { metadata.pageCount?.toString().orEmpty() },
+        coverUrl = if (coverImagePath.isBlank() && coverUrl.isBlank()) metadata.coverUrl.orEmpty() else coverUrl,
+        notes = notes.ifBlank { metadata.notes.orEmpty() },
+        isbn = isbn.ifBlank { metadata.isbn13 ?: metadata.isbn10 ?: scannedIsbn },
+    )
+
     fun toEntity(): BookEntity {
-        val normalizedIsbn = isbn.filter(Char::isDigit)
         return BookEntity(
+            id = id,
             title = title.trim(),
             subtitle = subtitle.trim().takeIf(String::isNotBlank),
             authors = authors.split(",").map { it.trim() }.filter(String::isNotBlank),
             languageCode = languageCode,
             originalScriptTitle = originalScriptTitle.trim().takeIf(String::isNotBlank),
             tags = tags.split(",").map { it.trim() }.filter(String::isNotBlank),
-            isbn10 = normalizedIsbn.takeIf { it.length == 10 },
-            isbn13 = normalizedIsbn.takeIf { it.length == 13 },
+            isbn10 = isbn.normalizedIsbn10OrNull(),
+            isbn13 = isbn.normalizedIsbn13OrNull(),
             publisher = publisher.trim().takeIf(String::isNotBlank),
             publishedYear = publishedYear.toIntOrNull(),
             pageCount = pageCount.toIntOrNull(),
+            coverImagePath = coverImagePath.trim().takeIf(String::isNotBlank),
             coverUrl = coverUrl.trim().takeIf(String::isNotBlank),
             formatCode = formatCode,
             notes = notes.trim().takeIf(String::isNotBlank),
             rating = rating.takeIf { it > 0f },
             readStatusCode = readStatusCode,
+            locationId = locationId,
             positionNote = positionNote.trim().takeIf(String::isNotBlank),
         )
     }
@@ -317,19 +404,67 @@ data class LibraryStats(
     val totalBooks: Int = 0,
     val activeLoans: Int = 0,
     val finishedBooks: Int = 0,
+    val readThisYear: Int = 0,
     val languages: Map<String, Int> = emptyMap(),
     val genres: Map<String, Int> = emptyMap(),
+    val mostBorrowed: List<BookBorrowStat> = emptyList(),
 ) {
     companion object {
-        fun from(books: List<BookEntity>, activeLoans: List<LoanEntity>) = LibraryStats(
-            totalBooks = books.size,
-            activeLoans = activeLoans.size,
-            finishedBooks = books.count { it.readStatusCode == ReadStatusCode.Finished.code },
-            languages = books.groupingBy { it.languageCode }.eachCount(),
-            genres = books.flatMap { it.tags }.groupingBy { it }.eachCount(),
-        )
+        fun from(books: List<BookEntity>, loans: List<LoanEntity>, activeLoans: List<LoanEntity>): LibraryStats {
+            val currentYear = LocalDate.now().year
+            val bookById = books.associateBy { it.id }
+            return LibraryStats(
+                totalBooks = books.size,
+                activeLoans = activeLoans.size,
+                finishedBooks = books.count { it.readStatusCode == ReadStatusCode.Finished.code },
+                readThisYear = books.count {
+                    it.readStatusCode == ReadStatusCode.Finished.code &&
+                        it.addedDateEpochMillis.toLocalYear() == currentYear
+                },
+                languages = books.groupingBy { it.languageCode }.eachCount(),
+                genres = books.flatMap { it.tags }.groupingBy { it }.eachCount(),
+                mostBorrowed = loans.groupingBy { it.bookId }
+                    .eachCount()
+                    .entries
+                    .sortedByDescending { it.value }
+                    .mapNotNull { entry ->
+                        bookById[entry.key]?.let { book -> BookBorrowStat(book.title, entry.value) }
+                    }
+                    .take(5),
+            )
+        }
     }
 }
+
+data class BookBorrowStat(
+    val title: String,
+    val borrowCount: Int,
+)
+
+fun BookEntity.toBookDraft(): BookDraft = BookDraft(
+    id = id,
+    title = title,
+    subtitle = subtitle.orEmpty(),
+    authors = authors.joinToString(", "),
+    languageCode = languageCode,
+    originalScriptTitle = originalScriptTitle.orEmpty(),
+    tags = tags.joinToString(", "),
+    isbn = isbn13 ?: isbn10.orEmpty(),
+    publisher = publisher.orEmpty(),
+    publishedYear = publishedYear?.toString().orEmpty(),
+    pageCount = pageCount?.toString().orEmpty(),
+    coverImagePath = coverImagePath.orEmpty(),
+    coverUrl = coverUrl.orEmpty(),
+    formatCode = formatCode,
+    notes = notes.orEmpty(),
+    rating = rating ?: 0f,
+    readStatusCode = readStatusCode,
+    locationId = locationId,
+    positionNote = positionNote.orEmpty(),
+)
+
+private fun Long.toLocalYear(): Int =
+    java.time.Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).year
 
 private fun String.searchKey(): String =
     Normalizer.normalize(lowercase(), Normalizer.Form.NFD)

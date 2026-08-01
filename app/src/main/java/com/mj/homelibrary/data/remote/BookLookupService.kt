@@ -1,8 +1,13 @@
 package com.mj.homelibrary.data.remote
 
 import android.content.Context
+import android.text.Html
+import com.mj.homelibrary.data.normalizedIsbn
+import com.mj.homelibrary.data.normalizedIsbn10OrNull
+import com.mj.homelibrary.data.normalizedIsbn13OrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -11,10 +16,12 @@ import java.nio.charset.StandardCharsets
 
 class BookLookupService(private val context: Context) {
     suspend fun lookup(isbn: String): Result<BookMetadata> = withContext(Dispatchers.IO) {
-        val normalized = isbn.filter(Char::isDigit)
         runCatching {
-            lookupOpenLibrary(normalized) ?: lookupGoogleBooks(normalized)
-                ?: error("No metadata found")
+            val normalized = isbn.normalizedIsbn()
+            if (normalized.isBlank()) error("ISBN is blank")
+            val openLibrary = runCatching { lookupOpenLibrary(normalized) }.getOrNull()
+            val googleBooks = runCatching { lookupGoogleBooks(normalized) }.getOrNull()
+            openLibrary.mergeWith(googleBooks) ?: error("No metadata found")
         }
     }
 
@@ -22,24 +29,55 @@ class BookLookupService(private val context: Context) {
         val url = "https://openlibrary.org/isbn/$isbn.json"
         val json = getJson(url) ?: return null
         val title = json.optString("title").takeIf(String::isNotBlank) ?: return null
+        val work = json.optJSONArray("works")
+            ?.optJSONObject(0)
+            ?.optString("key")
+            ?.takeIf(String::isNotBlank)
+            ?.let { getJson("https://openlibrary.org$it.json") }
         val authors = json.optJSONArray("authors")?.let { authorArray ->
             List(authorArray.length()) { index ->
-                authorArray.optJSONObject(index)?.optString("key").orEmpty().substringAfterLast("/")
-            }.filter(String::isNotBlank)
+                val key = authorArray.optJSONObject(index)?.optString("key").orEmpty()
+                openLibraryAuthorName(key)
+            }.filter(String::isNotBlank).distinct()
         }.orEmpty()
-        val publishers = json.optJSONArray("publishers")
+        val publishers = json.optJSONArray("publishers").toStringList()
         val publishDate = json.optString("publish_date")
         val coverId = json.optJSONArray("covers")?.optLong(0)?.takeIf { it > 0L }
+        val tags = (
+            work?.optJSONArray("subjects").toStringList() +
+                work?.optJSONArray("subject_places").toStringList() +
+                work?.optJSONArray("subject_times").toStringList()
+            ).map { it.trim() }
+            .filter(String::isNotBlank)
+            .distinct()
+            .take(MAX_TAGS)
+        val languageCode = json.optJSONArray("languages")
+            ?.optJSONObject(0)
+            ?.optString("key")
+            ?.substringAfterLast("/")
+            ?.toAppLanguageCode()
+            ?: "en"
 
         return BookMetadata(
             title = title,
+            subtitle = json.optString("subtitle").takeIf(String::isNotBlank),
             authors = authors,
-            publisher = publishers?.optString(0),
+            tags = tags,
+            publisher = publishers.firstOrNull(),
             publishedYear = publishDate.toYearOrNull(),
             pageCount = json.optInt("number_of_pages").takeIf { it > 0 },
             coverUrl = coverId?.let { "https://covers.openlibrary.org/b/id/$it-L.jpg" },
-            isbn10 = isbn.takeIf { it.length == 10 },
-            isbn13 = isbn.takeIf { it.length == 13 },
+            languageCode = languageCode,
+            isbn10 = json.optJSONArray("isbn_10").toStringList().firstNotNullOfOrNull {
+                it.normalizedIsbn10OrNull()
+            }
+                ?: isbn.normalizedIsbn10OrNull(),
+            isbn13 = json.optJSONArray("isbn_13").toStringList().firstNotNullOfOrNull {
+                it.normalizedIsbn13OrNull()
+            }
+                ?: isbn.normalizedIsbn13OrNull(),
+            formatCode = json.optString("physical_format").toFormatCodeOrNull(),
+            notes = (work?.optDescription() ?: json.optDescription()).toSynopsis(),
         )
     }
 
@@ -67,14 +105,23 @@ class BookLookupService(private val context: Context) {
             authors = item.optJSONArray("authors")?.let { array ->
                 List(array.length()) { index -> array.optString(index) }.filter(String::isNotBlank)
             }.orEmpty(),
+            tags = item.optJSONArray("categories").toStringList(),
             publisher = item.optString("publisher").takeIf(String::isNotBlank),
             publishedYear = item.optString("publishedDate").toYearOrNull(),
             pageCount = item.optInt("pageCount").takeIf { it > 0 },
-            coverUrl = item.optJSONObject("imageLinks")?.optString("thumbnail")?.replace("http://", "https://"),
+            coverUrl = item.optJSONObject("imageLinks").bestGoogleCoverUrl(),
             languageCode = item.optString("language").takeIf(String::isNotBlank) ?: "en",
-            isbn10 = isbn10 ?: isbn.takeIf { it.length == 10 },
-            isbn13 = isbn13 ?: isbn.takeIf { it.length == 13 },
+            isbn10 = isbn10?.normalizedIsbn10OrNull() ?: isbn.normalizedIsbn10OrNull(),
+            isbn13 = isbn13?.normalizedIsbn13OrNull() ?: isbn.normalizedIsbn13OrNull(),
+            notes = item.optString("description").takeIf(String::isNotBlank).toSynopsis(),
         )
+    }
+
+    private fun openLibraryAuthorName(key: String): String {
+        if (key.isBlank()) return ""
+        val author = runCatching { getJson("https://openlibrary.org$key.json") }.getOrNull()
+        return author?.optString("name")?.takeIf(String::isNotBlank)
+            ?: key.substringAfterLast("/")
     }
 
     private fun getJson(url: String): JSONObject? {
@@ -92,11 +139,89 @@ class BookLookupService(private val context: Context) {
         }
     }
 
+    private fun BookMetadata?.mergeWith(fallback: BookMetadata?): BookMetadata? {
+        if (this == null) return fallback
+        if (fallback == null) return this
+        return BookMetadata(
+            title = title.ifBlank { fallback.title },
+            subtitle = subtitle ?: fallback.subtitle,
+            authors = (authors + fallback.authors).distinctBy { it.lowercase() },
+            tags = (tags + fallback.tags).distinctBy { it.lowercase() }.take(MAX_TAGS),
+            publisher = publisher ?: fallback.publisher,
+            publishedYear = publishedYear ?: fallback.publishedYear,
+            pageCount = pageCount ?: fallback.pageCount,
+            coverUrl = coverUrl ?: fallback.coverUrl,
+            languageCode = languageCode.takeIf { it.isNotBlank() && it != "other" } ?: fallback.languageCode,
+            isbn10 = isbn10 ?: fallback.isbn10,
+            isbn13 = isbn13 ?: fallback.isbn13,
+            formatCode = formatCode ?: fallback.formatCode,
+            notes = bestSynopsis(notes, fallback.notes),
+        )
+    }
+
+    private fun bestSynopsis(primary: String?, fallback: String?): String? =
+        listOfNotNull(primary, fallback)
+            .mapNotNull { it.toSynopsis() }
+            .distinctBy { it.lowercase() }
+            .maxByOrNull { it.length }
+
+    private fun JSONArray?.toStringList(): List<String> {
+        if (this == null) return emptyList()
+        return List(length()) { index -> optString(index) }
+            .filter(String::isNotBlank)
+    }
+
+    private fun JSONObject?.bestGoogleCoverUrl(): String? {
+        if (this == null) return null
+        return listOf("extraLarge", "large", "medium", "small", "thumbnail", "smallThumbnail")
+            .firstNotNullOfOrNull { key -> optString(key).takeIf(String::isNotBlank) }
+            ?.replace("http://", "https://")
+    }
+
+    private fun JSONObject.optDescription(): String? {
+        val value = opt("description") ?: return null
+        return when (value) {
+            is String -> value
+            is JSONObject -> value.optString("value")
+            else -> null
+        }?.takeIf(String::isNotBlank)
+    }
+
+    private fun String?.toSynopsis(): String? {
+        val value = this?.takeIf(String::isNotBlank) ?: return null
+        return Html.fromHtml(value, Html.FROM_HTML_MODE_LEGACY)
+            .toString()
+            .lineSequence()
+            .map { it.trim() }
+            .filter(String::isNotBlank)
+            .joinToString("\n")
+            .takeIf(String::isNotBlank)
+    }
+
+    private fun String?.toFormatCodeOrNull(): String? {
+        val value = this?.lowercase().orEmpty()
+        return when {
+            "hardcover" in value || "hardback" in value -> "hardcover"
+            "paperback" in value || "paper back" in value -> "paperback"
+            "ebook" in value || "e-book" in value || "electronic" in value -> "ebook"
+            value.isBlank() -> null
+            else -> "other"
+        }
+    }
+
+    private fun String.toAppLanguageCode(): String = when (lowercase()) {
+        "eng", "en" -> "en"
+        "mal", "ml" -> "ml"
+        "hin", "hi" -> "hi"
+        else -> "other"
+    }
+
     private fun String?.toYearOrNull(): Int? = this?.let {
         Regex("""\d{4}""").find(it)?.value?.toIntOrNull()
     }
 
     private companion object {
         const val NETWORK_TIMEOUT_MS = 12_000
+        const val MAX_TAGS = 12
     }
 }

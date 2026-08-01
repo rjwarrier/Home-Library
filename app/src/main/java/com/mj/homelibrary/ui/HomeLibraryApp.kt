@@ -1,6 +1,13 @@
 package com.mj.homelibrary.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
@@ -59,6 +66,7 @@ import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Event
@@ -71,11 +79,13 @@ import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Outbound
 import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.RunningWithErrors
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Sort
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Translate
@@ -124,6 +134,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -153,7 +164,9 @@ import com.mj.homelibrary.data.ReadStatusCode
 import com.mj.homelibrary.data.entity.BookEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
+import com.mj.homelibrary.data.validIsbnOrNull
 import java.time.Year
+import java.io.File
 import kotlin.math.absoluteValue
 import kotlin.math.max
 
@@ -165,7 +178,26 @@ private enum class HomeTab(@StringRes val labelRes: Int, @StringRes val titleRes
     Shelves(R.string.nav_shelves, R.string.screen_shelves, Icons.Outlined.Place),
     Loans(R.string.nav_loans, R.string.screen_loans, Icons.Outlined.People),
     Stats(R.string.nav_stats, R.string.screen_stats, Icons.Outlined.BarChart),
+    Settings(R.string.nav_settings, R.string.screen_settings, Icons.Outlined.Settings),
 }
+
+private fun BookEntity.matchesIsbn(isbn: String): Boolean {
+    val normalized = isbn.validIsbnOrNull() ?: return false
+    return isbn10 == normalized || isbn13 == normalized
+}
+
+private fun BookEntity.toListItem(state: HomeLibraryUiState): BookListItem =
+    BookListItem(
+        book = this,
+        location = state.locations.firstOrNull { it.id == locationId },
+        activeLoan = state.activeLoans.firstOrNull { it.bookId == id },
+    )
+
+private fun List<String>.distinctSorted(): List<String> =
+    map { it.trim() }
+        .filter(String::isNotBlank)
+        .distinctBy { it.lowercase() }
+        .sortedBy { it.lowercase() }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -178,20 +210,35 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
     var showAddBook by remember { mutableStateOf(false) }
     var manualEntry by remember { mutableStateOf(false) }
     var scannedIsbn by remember { mutableStateOf("") }
+    var enrichExistingBookId by remember { mutableStateOf<Long?>(null) }
     var selectedBook by remember { mutableStateOf<BookListItem?>(null) }
+    var editBook by remember { mutableStateOf<BookListItem?>(null) }
+    var moveBook by remember { mutableStateOf<BookListItem?>(null) }
+    var deleteBook by remember { mutableStateOf<BookEntity?>(null) }
+    var auditShelf by remember { mutableStateOf<LocationEntity?>(null) }
+    var showAddShelf by remember { mutableStateOf(false) }
+    var showNewLoanPicker by remember { mutableStateOf(false) }
     var loanBook by remember { mutableStateOf<BookEntity?>(null) }
     var returnLoan by remember { mutableStateOf<LoanEntity?>(null) }
 
     state.transient.errorRes?.let { errorRes ->
-        AlertDialog(
-            onDismissRequest = viewModel::clearError,
-            confirmButton = {
-                TextButton(onClick = viewModel::clearError) {
-                    Text(stringResource(R.string.action_clear))
-                }
-            },
-            text = { Text(stringResource(errorRes)) },
-        )
+        val failedIsbn = state.transient.failedLookupIsbn
+        if (failedIsbn != null && errorRes == R.string.isbn_lookup_failed) {
+            LookupFailedDialog(
+                isbn = failedIsbn,
+                onDismiss = viewModel::clearError,
+            )
+        } else {
+            AlertDialog(
+                onDismissRequest = viewModel::clearError,
+                confirmButton = {
+                    TextButton(onClick = viewModel::clearError) {
+                        Text(stringResource(R.string.action_clear))
+                    }
+                },
+                text = { Text(stringResource(errorRes)) },
+            )
+        }
     }
 
     state.transient.statusRes?.let { statusRes ->
@@ -211,21 +258,41 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            if (selectedTab == HomeTab.Library) {
-                GranthapuraFabMenu(
-                    expanded = fabExpanded,
-                    onToggle = { fabExpanded = !fabExpanded },
-                    onScan = {
-                        fabExpanded = false
-                        showScanner = true
-                    },
-                    onManual = {
-                        fabExpanded = false
-                        manualEntry = true
-                        scannedIsbn = ""
-                        showAddBook = true
-                    },
-                )
+            AnimatedVisibility(
+                visible = selectedTab in listOf(HomeTab.Library, HomeTab.Shelves, HomeTab.Loans),
+                enter = scaleIn() + fadeIn(),
+                exit = scaleOut() + fadeOut(),
+            ) {
+                when (selectedTab) {
+                    HomeTab.Library -> GranthapuraFabMenu(
+                        expanded = fabExpanded,
+                        onToggle = { fabExpanded = !fabExpanded },
+                        onScan = {
+                            fabExpanded = false
+                            showScanner = true
+                        },
+                        onManual = {
+                            fabExpanded = false
+                            manualEntry = true
+                            scannedIsbn = ""
+                            showAddBook = true
+                        },
+                    )
+
+                    HomeTab.Shelves -> ScreenFab(
+                        icon = Icons.Outlined.Add,
+                        label = stringResource(R.string.action_add_shelf),
+                        onClick = { showAddShelf = true },
+                    )
+
+                    HomeTab.Loans -> ScreenFab(
+                        icon = Icons.Outlined.PersonAdd,
+                        label = stringResource(R.string.action_new_loan),
+                        onClick = { showNewLoanPicker = true },
+                    )
+
+                    else -> Unit
+                }
             }
         },
     ) { padding ->
@@ -246,13 +313,20 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
                     onReadStatusChange = viewModel::setReadStatus,
                     onOnLoanChange = viewModel::setOnLoanOnly,
                     onLocationChange = viewModel::setLocation,
+                    onTagChange = viewModel::setTag,
                     onBookClick = { selectedBook = it },
                     onScanFirst = { showScanner = true },
                 )
 
-                HomeTab.Shelves -> ShelvesScreen(state = state, onBookClick = { selectedBook = it })
+                HomeTab.Shelves -> ShelvesScreen(
+                    state = state,
+                    onBookClick = { selectedBook = it },
+                    onAudit = { auditShelf = it },
+                    onAddShelf = { showAddShelf = true },
+                )
                 HomeTab.Loans -> LoansScreen(
                     state = state,
+                    onNewLoan = { showNewLoanPicker = true },
                     onReturn = { returnLoan = it },
                     onBookClick = { selectedBook = it },
                 )
@@ -262,6 +336,13 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
                     onExportJson = viewModel::exportJson,
                     onExportCsv = viewModel::exportCsv,
                     onImportJson = viewModel::importJson,
+                    onImportCsv = viewModel::importCsv,
+                )
+
+                HomeTab.Settings -> SettingsScreen(
+                    state = state,
+                    onExportCompleteBackup = viewModel::exportCompleteBackup,
+                    onImportCompleteBackup = viewModel::importCompleteBackup,
                 )
             }
         }
@@ -269,12 +350,30 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
 
     if (showScanner) {
         BarcodeScannerSheet(
-            onBarcode = {
-                scannedIsbn = it
-                manualEntry = false
-                showAddBook = true
+            onBarcode = { isbn ->
+                val existingBook = state.allBooks.firstOrNull { it.matchesIsbn(isbn) }
+                if (existingBook != null) {
+                    editBook = existingBook.toListItem(state)
+                    enrichExistingBookId = existingBook.id
+                    selectedBook = null
+                    showAddBook = false
+                } else {
+                    scannedIsbn = isbn
+                    manualEntry = false
+                    showAddBook = true
+                }
+                showScanner = false
             },
             onDismiss = { showScanner = false },
+        )
+    }
+
+    if (showAddShelf) {
+        AddShelfSheet(
+            onDismiss = { showAddShelf = false },
+            onSave = { room, unit, shelf ->
+                viewModel.addShelf(room, unit, shelf) { showAddShelf = false }
+            },
         )
     }
 
@@ -282,10 +381,45 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
         AddBookSheet(
             manualEntry = manualEntry,
             initialIsbn = scannedIsbn,
+            initialDraft = null,
+            autoLookup = true,
+            fillOnlyEmpty = false,
+            authorSuggestions = state.allBooks.flatMap { it.authors }.distinctSorted(),
+            tagSuggestions = state.allBooks.flatMap { it.tags }.distinctSorted(),
             lookupInProgress = state.transient.lookupInProgress,
             onDismiss = { showAddBook = false },
             onLookup = viewModel::lookupIsbn,
             onSave = { draft -> viewModel.addBook(draft) { showAddBook = false } },
+        )
+    }
+
+    editBook?.let { item ->
+        val enrichFromScan = enrichExistingBookId == item.book.id
+        AddBookSheet(
+            manualEntry = !enrichFromScan,
+            initialIsbn = if (enrichFromScan) item.book.isbn13 ?: item.book.isbn10.orEmpty() else "",
+            initialDraft = item.book.toBookDraft().copy(
+                room = item.location?.room.orEmpty(),
+                unit = item.location?.unit.orEmpty(),
+                shelf = item.location?.shelf.orEmpty(),
+            ),
+            autoLookup = enrichFromScan,
+            fillOnlyEmpty = true,
+            authorSuggestions = state.allBooks.flatMap { it.authors }.distinctSorted(),
+            tagSuggestions = state.allBooks.flatMap { it.tags }.distinctSorted(),
+            lookupInProgress = state.transient.lookupInProgress,
+            onDismiss = {
+                editBook = null
+                enrichExistingBookId = null
+            },
+            onLookup = viewModel::lookupIsbn,
+            onSave = { draft ->
+                viewModel.addBook(draft) {
+                    editBook = null
+                    enrichExistingBookId = null
+                    selectedBook = null
+                }
+            },
         )
     }
 
@@ -296,6 +430,75 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
             onDismiss = { selectedBook = null },
             onLoan = { loanBook = item.book },
             onReturn = { returnLoan = it },
+            onEdit = { editBook = item },
+            onMove = { moveBook = item },
+            onDelete = { deleteBook = item.book },
+            onRate = { rating -> viewModel.updateBookRating(item.book.id, rating) },
+        )
+    }
+
+    moveBook?.let { item ->
+        MoveBookSheet(
+            item = item,
+            onDismiss = { moveBook = null },
+            onSave = { room, unit, shelf, positionNote ->
+                viewModel.moveBook(item.book.id, room, unit, shelf, positionNote) {
+                    moveBook = null
+                    selectedBook = null
+                }
+            },
+        )
+    }
+
+    deleteBook?.let { book ->
+        DeleteBookDialog(
+            book = book,
+            onDismiss = { deleteBook = null },
+            onDelete = {
+                viewModel.deleteBook(book) {
+                    deleteBook = null
+                    selectedBook = null
+                }
+            },
+        )
+    }
+
+    auditShelf?.let { location ->
+        ShelfAuditSheet(
+            location = location,
+            books = state.allBooks
+                .filter { it.locationId == location.id }
+                .map { book ->
+                    BookListItem(
+                        book = book,
+                        location = location,
+                        activeLoan = state.activeLoans.firstOrNull { it.bookId == book.id },
+                    )
+                },
+            onDismiss = { auditShelf = null },
+            onBookClick = {
+                selectedBook = it
+                auditShelf = null
+            },
+        )
+    }
+
+    if (showNewLoanPicker) {
+        NewLoanPickerSheet(
+            items = state.allBooks
+                .map { book ->
+                    BookListItem(
+                        book = book,
+                        location = state.locations.firstOrNull { it.id == book.locationId },
+                        activeLoan = state.activeLoans.firstOrNull { it.bookId == book.id },
+                    )
+                }
+                .filterNot { it.isOnLoan },
+            onDismiss = { showNewLoanPicker = false },
+            onSelect = {
+                loanBook = it.book
+                showNewLoanPicker = false
+            },
         )
     }
 
@@ -328,9 +531,9 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
 private fun GranthapuraNavigationBar(selectedTab: HomeTab, onSelect: (HomeTab) -> Unit) {
     NavigationBar(
         modifier = Modifier
-            .height(dimensionResource(R.dimen.bottom_nav_height))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            .height(72.dp),
         containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 3.dp,
     ) {
         HomeTab.entries.forEach { tab ->
             NavigationBarItem(
@@ -338,6 +541,7 @@ private fun GranthapuraNavigationBar(selectedTab: HomeTab, onSelect: (HomeTab) -
                 onClick = { onSelect(tab) },
                 icon = { Icon(tab.icon, contentDescription = null) },
                 label = { Text(stringResource(tab.labelRes), maxLines = 1) },
+                alwaysShowLabel = false,
             )
         }
     }
@@ -374,10 +578,7 @@ private fun ScreenHeader(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = stringResource(titleRes),
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 34.sp,
-                lineHeight = 38.sp,
+                style = MaterialTheme.typography.displaySmall,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
@@ -413,6 +614,7 @@ private fun LibraryScreen(
     onReadStatusChange: (String?) -> Unit,
     onOnLoanChange: (Boolean) -> Unit,
     onLocationChange: (Long?) -> Unit,
+    onTagChange: (String?) -> Unit,
     onBookClick: (BookListItem) -> Unit,
     onScanFirst: () -> Unit,
 ) {
@@ -446,6 +648,7 @@ private fun LibraryScreen(
             onReadStatusChange = onReadStatusChange,
             onOnLoanChange = onOnLoanChange,
             onLocationChange = onLocationChange,
+            onTagChange = onTagChange,
         )
 
         when {
@@ -562,29 +765,76 @@ private fun FilterStrip(
     onReadStatusChange: (String?) -> Unit,
     onOnLoanChange: (Boolean) -> Unit,
     onLocationChange: (Long?) -> Unit,
+    onTagChange: (String?) -> Unit,
 ) {
+    val context = LocalContext.current
+    val tags = state.allBooks.flatMap { it.tags }.distinct().sortedBy { it.lowercase() }
+    val languages = state.allBooks.map { it.languageCode }.distinct().sorted()
+    var genreExpanded by remember { mutableStateOf(false) }
+    var languageExpanded by remember { mutableStateOf(false) }
+    var locationExpanded by remember { mutableStateOf(false) }
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_sm)),
         contentPadding = PaddingValues(vertical = dimensionResource(R.dimen.space_xs)),
     ) {
         item {
-            MorphChip(
-                selected = state.filters.readStatusCode == null,
-                label = stringResource(R.string.filter_genre),
-                trailing = Icons.Outlined.ExpandMore,
-                onClick = { onReadStatusChange(null) },
-            )
-        }
-        item {
-            MorphChip(
-                selected = state.filters.languageCode == LanguageCode.Malayalam.code,
-                label = stringResource(LanguageCode.Malayalam.labelRes),
-                onClick = {
-                    onLanguageChange(
-                        if (state.filters.languageCode == LanguageCode.Malayalam.code) null else LanguageCode.Malayalam.code,
+            Box {
+                MorphChip(
+                    selected = state.filters.tag != null,
+                    label = state.filters.tag ?: stringResource(R.string.filter_genre),
+                    trailing = Icons.Outlined.ExpandMore,
+                    onClick = { genreExpanded = true },
+                )
+                DropdownMenu(expanded = genreExpanded, onDismissRequest = { genreExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.filter_all_genres)) },
+                        onClick = {
+                            onTagChange(null)
+                            genreExpanded = false
+                        },
                     )
-                },
-            )
+                    tags.forEach { tag ->
+                        DropdownMenuItem(
+                            text = { Text(tag) },
+                            onClick = {
+                                onTagChange(tag)
+                                genreExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        if (languages.size > 1) {
+            item {
+                Box {
+                    val selectedLanguage = state.filters.languageCode
+                    MorphChip(
+                        selected = selectedLanguage != null,
+                        label = selectedLanguage?.let { languageLabel(context, it) } ?: stringResource(R.string.filter_language),
+                        trailing = Icons.Outlined.ExpandMore,
+                        onClick = { languageExpanded = true },
+                    )
+                    DropdownMenu(expanded = languageExpanded, onDismissRequest = { languageExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.filter_all_languages)) },
+                            onClick = {
+                                onLanguageChange(null)
+                                languageExpanded = false
+                            },
+                        )
+                        languages.forEach { language ->
+                            DropdownMenuItem(
+                                text = { Text(languageLabel(context, language)) },
+                                onClick = {
+                                    onLanguageChange(language)
+                                    languageExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
         }
         item {
             MorphChip(
@@ -605,12 +855,33 @@ private fun FilterStrip(
             )
         }
         item {
-            MorphChip(
-                selected = state.filters.locationId != null,
-                label = stringResource(R.string.filter_location),
-                trailing = Icons.Outlined.ExpandMore,
-                onClick = { onLocationChange(null) },
-            )
+            Box {
+                val selectedLocation = state.locations.firstOrNull { it.id == state.filters.locationId }
+                MorphChip(
+                    selected = selectedLocation != null,
+                    label = selectedLocation?.displayBreadcrumb(context) ?: stringResource(R.string.filter_location),
+                    trailing = Icons.Outlined.ExpandMore,
+                    onClick = { locationExpanded = true },
+                )
+                DropdownMenu(expanded = locationExpanded, onDismissRequest = { locationExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.filter_all_locations)) },
+                        onClick = {
+                            onLocationChange(null)
+                            locationExpanded = false
+                        },
+                    )
+                    state.locations.forEach { location ->
+                        DropdownMenuItem(
+                            text = { Text(location.displayBreadcrumb(context)) },
+                            onClick = {
+                                onLocationChange(location.id)
+                                locationExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -732,7 +1003,7 @@ private fun BookCover(
     modifier: Modifier = Modifier,
     titleSize: Int = 16,
 ) {
-    val palette = remember(book.id, book.title) { coverPaletteFor(book) }
+    val palette = coverPaletteFor(book)
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
@@ -853,7 +1124,12 @@ private fun StatusPill(item: BookListItem) {
 }
 
 @Composable
-private fun ShelvesScreen(state: HomeLibraryUiState, onBookClick: (BookListItem) -> Unit) {
+private fun ShelvesScreen(
+    state: HomeLibraryUiState,
+    onBookClick: (BookListItem) -> Unit,
+    onAudit: (LocationEntity) -> Unit,
+    onAddShelf: () -> Unit,
+) {
     val roomCount = state.locations.map { it.room }.distinct().size
     val unitCount = state.locations.map { it.room to it.unit }.distinct().size
     ContentColumn {
@@ -862,13 +1138,13 @@ private fun ShelvesScreen(state: HomeLibraryUiState, onBookClick: (BookListItem)
             meta = stringResource(R.string.shelves_meta, roomCount, unitCount, state.locations.size),
             actions = {
                 OutlinedButton(
-                    onClick = {},
+                    onClick = onAddShelf,
                     shape = RoundedCornerShape(12.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                 ) {
-                    Icon(Icons.Outlined.CheckBoxOutlineBlank, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.action_select))
+                    Text(stringResource(R.string.action_add_shelf))
                 }
             },
         )
@@ -887,7 +1163,7 @@ private fun ShelvesScreen(state: HomeLibraryUiState, onBookClick: (BookListItem)
             ) {
                 state.locations.groupBy { it.room }.forEach { (room, locations) ->
                     item(key = room) {
-                        RoomSection(room = room, locations = locations, items = state.visibleBooks, onBookClick = onBookClick)
+                        RoomSection(room = room, locations = locations, items = state.visibleBooks, onBookClick = onBookClick, onAudit = onAudit)
                     }
                 }
             }
@@ -901,6 +1177,7 @@ private fun RoomSection(
     locations: List<LocationEntity>,
     items: List<BookListItem>,
     onBookClick: (BookListItem) -> Unit,
+    onAudit: (LocationEntity) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_sm))) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -909,7 +1186,7 @@ private fun RoomSection(
             CountChip(stringResource(R.string.book_count, items.count { it.location?.room == room }))
         }
         locations.groupBy { it.unit }.forEach { (unit, unitLocations) ->
-            BookcaseCard(unit = unit, locations = unitLocations, items = items, onBookClick = onBookClick)
+            BookcaseCard(unit = unit, locations = unitLocations, items = items, onBookClick = onBookClick, onAudit = onAudit)
         }
     }
 }
@@ -920,6 +1197,7 @@ private fun BookcaseCard(
     locations: List<LocationEntity>,
     items: List<BookListItem>,
     onBookClick: (BookListItem) -> Unit,
+    onAudit: (LocationEntity) -> Unit,
 ) {
     ElevatedCard(
         shape = RoundedCornerShape(20.dp),
@@ -937,14 +1215,19 @@ private fun BookcaseCard(
             }
             locations.forEach { location ->
                 val shelfBooks = items.filter { it.location?.id == location.id }
-                ShelfRow(location = location, books = shelfBooks, onBookClick = onBookClick)
+                ShelfRow(location = location, books = shelfBooks, onBookClick = onBookClick, onAudit = onAudit)
             }
         }
     }
 }
 
 @Composable
-private fun ShelfRow(location: LocationEntity, books: List<BookListItem>, onBookClick: (BookListItem) -> Unit) {
+private fun ShelfRow(
+    location: LocationEntity,
+    books: List<BookListItem>,
+    onBookClick: (BookListItem) -> Unit,
+    onAudit: (LocationEntity) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -955,7 +1238,9 @@ private fun ShelfRow(location: LocationEntity, books: List<BookListItem>, onBook
                 modifier = Modifier.weight(1f),
             )
             CountChip(stringResource(R.string.book_count, books.size), MaterialTheme.colorScheme.tertiaryContainer)
-            Icon(Icons.Outlined.FactCheck, contentDescription = stringResource(R.string.shelf_audit), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 8.dp).size(18.dp))
+            IconButton(onClick = { onAudit(location) }, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Outlined.FactCheck, contentDescription = stringResource(R.string.shelf_audit), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            }
         }
         Box(modifier = Modifier.height(74.dp).fillMaxWidth()) {
             HorizontalDivider(modifier = Modifier.align(Alignment.BottomCenter), color = MaterialTheme.colorScheme.outlineVariant, thickness = 2.dp)
@@ -974,7 +1259,7 @@ private fun ShelfRow(location: LocationEntity, books: List<BookListItem>, onBook
 
 @Composable
 private fun Spine(item: BookListItem, onClick: () -> Unit) {
-    val palette = remember(item.book.id, item.book.title) { coverPaletteFor(item.book) }
+    val palette = coverPaletteFor(item.book)
     val pages = item.book.pageCount ?: 220
     val height = when {
         pages > 450 -> 74.dp
@@ -1008,6 +1293,7 @@ private fun Spine(item: BookListItem, onClick: () -> Unit) {
 @Composable
 private fun LoansScreen(
     state: HomeLibraryUiState,
+    onNewLoan: () -> Unit,
     onReturn: (LoanEntity) -> Unit,
     onBookClick: (BookListItem) -> Unit,
 ) {
@@ -1019,7 +1305,7 @@ private fun LoansScreen(
             meta = stringResource(R.string.loans_meta, state.activeLoans.size, overdueCount, borrowers.size),
             actions = {
                 Button(
-                    onClick = {},
+                    onClick = onNewLoan,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -1174,13 +1460,15 @@ private fun StatsScreen(
     onExportJson: (Uri) -> Unit,
     onExportCsv: (Uri) -> Unit,
     onImportJson: (Uri) -> Unit,
+    onImportCsv: (Uri) -> Unit,
 ) {
     val jsonFilename = stringResource(R.string.backup_json_filename)
     val csvFilename = stringResource(R.string.backup_csv_filename)
     val jsonExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if (uri != null) onExportJson(uri) }
     val csvExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri -> if (uri != null) onExportCsv(uri) }
     val jsonImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) onImportJson(uri) }
-    val readThisYear = state.stats.finishedBooks
+    val csvImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) onImportCsv(uri) }
+    val readThisYear = state.stats.readThisYear
     val reading = state.allBooks.count { it.readStatusCode == ReadStatusCode.Reading.code }
     val unread = state.allBooks.count { it.readStatusCode == ReadStatusCode.Unread.code }
     val goal = 24
@@ -1214,7 +1502,11 @@ private fun StatsScreen(
                     onExportJson = { jsonExporter.launch(jsonFilename) },
                     onExportCsv = { csvExporter.launch(csvFilename) },
                     onImportJson = { jsonImporter.launch(arrayOf("application/json", "text/*")) },
+                    onImportCsv = { csvImporter.launch(arrayOf("text/csv", "text/*")) },
                 )
+            }
+            item {
+                MostBorrowedCard(state.stats.mostBorrowed)
             }
         }
     }
@@ -1233,11 +1525,11 @@ private fun StatsHero(total: Int, onLoan: Int) {
         ) {
             Column {
                 Text(stringResource(R.string.stats_total_books_eyebrow), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.4.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f))
-                Text(total.toString(), fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 62.sp, lineHeight = 66.sp)
+                Text(total.toString(), style = MaterialTheme.typography.displayLarge)
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(stringResource(R.string.stats_on_loan), style = MaterialTheme.typography.labelMedium)
-                Text(onLoan.toString(), fontFamily = FontFamily.Serif, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+                Text(onLoan.toString(), style = MaterialTheme.typography.headlineSmall)
             }
         }
     }
@@ -1248,7 +1540,7 @@ private fun StatTile(@StringRes label: Int, value: Int, color: Color, modifier: 
     Card(modifier = modifier, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = color)) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(stringResource(label).uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value.toString(), fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 30.sp)
+            Text(value.toString(), style = MaterialTheme.typography.headlineMedium)
         }
     }
 }
@@ -1313,17 +1605,19 @@ private fun GenreBarsCard(genres: Map<String, Int>, modifier: Modifier = Modifie
 private fun ReadingRingCard(read: Int, goal: Int, modifier: Modifier = Modifier) {
     ChartCard(title = R.string.stats_read_this_year, modifier = modifier, titleArg = Year.now().value) {
         val progress = (read / goal.toFloat()).coerceIn(0f, 1f)
+        val trackColor = MaterialTheme.colorScheme.surfaceVariant
+        val progressColor = MaterialTheme.colorScheme.primary
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Canvas(modifier = Modifier.size(104.dp)) {
                 drawArc(
-                    color = Color.Gray.copy(alpha = 0.25f),
+                    color = trackColor.copy(alpha = 0.72f),
                     startAngle = -90f,
                     sweepAngle = 360f,
                     useCenter = false,
                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = 14.dp.toPx()),
                 )
                 drawArc(
-                    color = Color(0xFF6F4E27),
+                    color = progressColor,
                     startAngle = -90f,
                     sweepAngle = 360f * progress,
                     useCenter = false,
@@ -1331,8 +1625,25 @@ private fun ReadingRingCard(read: Int, goal: Int, modifier: Modifier = Modifier)
                 )
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(read.toString(), fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 22.sp)
-                Text(stringResource(R.string.stats_goal_count, goal), fontSize = 9.sp)
+                Text(read.toString(), style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(R.string.stats_goal_count, goal), style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MostBorrowedCard(items: List<BookBorrowStat>) {
+    ChartCard(title = R.string.stats_most_borrowed) {
+        if (items.isEmpty()) {
+            Text(stringResource(R.string.no_borrow_history), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            items.forEachIndexed { index, item ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CountChip((index + 1).toString(), MaterialTheme.colorScheme.secondaryContainer)
+                    Text(item.title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(stringResource(R.string.borrow_count, item.borrowCount), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }
@@ -1363,12 +1674,79 @@ private fun ChartCard(
 }
 
 @Composable
-private fun BackupCard(onExportJson: () -> Unit, onExportCsv: () -> Unit, onImportJson: () -> Unit) {
+private fun BackupCard(onExportJson: () -> Unit, onExportCsv: () -> Unit, onImportJson: () -> Unit, onImportCsv: () -> Unit) {
     ChartCard(title = R.string.section_backup_restore) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onExportJson) { Text(stringResource(R.string.action_export_json)) }
             OutlinedButton(onClick = onExportCsv) { Text(stringResource(R.string.action_export_csv)) }
             OutlinedButton(onClick = onImportJson) { Text(stringResource(R.string.action_import_json)) }
+            OutlinedButton(onClick = onImportCsv) { Text(stringResource(R.string.action_import_csv)) }
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    state: HomeLibraryUiState,
+    onExportCompleteBackup: (Uri) -> Unit,
+    onImportCompleteBackup: (Uri) -> Unit,
+) {
+    val backupFilename = stringResource(R.string.backup_complete_filename)
+    val completeBackupExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) onExportCompleteBackup(uri)
+    }
+    val completeBackupImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) onImportCompleteBackup(uri)
+    }
+    ContentColumn {
+        ScreenHeader(
+            titleRes = R.string.screen_settings,
+            meta = stringResource(R.string.settings_meta, state.allBooks.size, state.locations.size, state.loans.size),
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_md)),
+            contentPadding = PaddingValues(bottom = dimensionResource(R.dimen.space_xl)),
+        ) {
+            item {
+                CompleteBackupCard(
+                    onExport = { completeBackupExporter.launch(backupFilename) },
+                    onRestore = { completeBackupImporter.launch(arrayOf("application/json", "text/*")) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompleteBackupCard(onExport: () -> Unit, onRestore: () -> Unit) {
+    ElevatedCard(shape = RoundedCornerShape(22.dp)) {
+        Column(
+            modifier = Modifier
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Outlined.CloudDone, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.complete_backup_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.complete_backup_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 19.sp)
+                }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onExport, shape = RoundedCornerShape(14.dp)) {
+                    Text(stringResource(R.string.action_export_complete_backup))
+                }
+                OutlinedButton(onClick = onRestore, shape = RoundedCornerShape(14.dp)) {
+                    Text(stringResource(R.string.action_restore_complete_backup))
+                }
+            }
         }
     }
 }
@@ -1398,7 +1776,7 @@ private fun DesignedEmptyState(
                 Icon(icon, contentDescription = null, modifier = Modifier.size(52.dp), tint = MaterialTheme.colorScheme.onSurface)
             }
             Spacer(Modifier.height(16.dp))
-            Text(title, fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 26.sp, textAlign = TextAlign.Center)
+            Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
             Text(body, style = MaterialTheme.typography.bodyMedium, lineHeight = 23.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             if (cta != null && onCta != null) {
                 Spacer(Modifier.height(16.dp))
@@ -1442,6 +1820,21 @@ private fun GranthapuraFabMenu(
 }
 
 @Composable
+private fun ScreenFab(icon: ImageVector, label: String, onClick: () -> Unit) {
+    FloatingActionButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(dimensionResource(R.dimen.fab_size))
+            .shadow(8.dp, RoundedCornerShape(22.dp)),
+        shape = RoundedCornerShape(22.dp),
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    ) {
+        Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
+    }
+}
+
+@Composable
 private fun FabMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
@@ -1459,26 +1852,95 @@ private fun FabMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddShelfSheet(
+    onDismiss: () -> Unit,
+    onSave: (String, String, String) -> Unit,
+) {
+    var room by remember { mutableStateOf("") }
+    var unit by remember { mutableStateOf("") }
+    var shelf by remember { mutableStateOf("") }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.add_shelf_title), style = MaterialTheme.typography.headlineSmall)
+            Text(stringResource(R.string.add_shelf_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextFieldLine(room, { room = it }, R.string.field_room)
+            TextFieldLine(unit, { unit = it }, R.string.field_unit)
+            TextFieldLine(shelf, { shelf = it }, R.string.field_shelf)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+                Button(onClick = { onSave(room, unit, shelf) }, modifier = Modifier.weight(1.4f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                    Text(stringResource(R.string.action_add_shelf))
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun AddBookSheet(
     manualEntry: Boolean,
     initialIsbn: String,
+    initialDraft: BookDraft?,
+    autoLookup: Boolean,
+    fillOnlyEmpty: Boolean,
+    authorSuggestions: List<String>,
+    tagSuggestions: List<String>,
     lookupInProgress: Boolean,
     onDismiss: () -> Unit,
     onLookup: (String, (com.mj.homelibrary.data.remote.BookMetadata?) -> Unit) -> Unit,
     onSave: (BookDraft) -> Unit,
 ) {
-    var draft by remember(initialIsbn, manualEntry) {
+    val editing = initialDraft != null
+    var draft by remember(initialIsbn, manualEntry, initialDraft?.id) {
         mutableStateOf(
-            BookDraft(
+            initialDraft ?: BookDraft(
                 isbn = initialIsbn,
                 languageCode = if (manualEntry) LanguageCode.Malayalam.code else LanguageCode.English.code,
             ),
         )
     }
     var showScanner by remember { mutableStateOf(false) }
+    var pendingCoverUri by remember { mutableStateOf<Uri?>(null) }
+    val context = LocalContext.current
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            pendingCoverUri = uri
+        }
+    }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    fun lookupIfValid(isbn: String) {
+        val validIsbn = isbn.validIsbnOrNull() ?: return
+        onLookup(validIsbn) { metadata ->
+            if (metadata != null) {
+                draft = if (fillOnlyEmpty) {
+                    draft.applyMissingMetadata(metadata, validIsbn)
+                } else {
+                    draft.copy(isbn = validIsbn).applyMetadata(metadata)
+                }
+            }
+        }
+    }
+    LaunchedEffect(initialIsbn, autoLookup, fillOnlyEmpty) {
+        if (autoLookup && !manualEntry && initialIsbn.validIsbnOrNull() != null) {
+            lookupIfValid(initialIsbn)
+        }
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -1495,9 +1957,15 @@ private fun AddBookSheet(
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.add_book_title), fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 24.sp)
+                    Text(stringResource(if (editing) R.string.edit_book_title else R.string.add_book_title), style = MaterialTheme.typography.headlineSmall)
                     Text(
-                        text = stringResource(if (manualEntry) R.string.manual_entry_subtitle else R.string.lookup_entry_subtitle),
+                        text = stringResource(
+                            when {
+                                editing -> R.string.edit_book_subtitle
+                                manualEntry -> R.string.manual_entry_subtitle
+                                else -> R.string.lookup_entry_subtitle
+                            },
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         lineHeight = 19.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1514,6 +1982,11 @@ private fun AddBookSheet(
             if (!manualEntry && draft.title.isNotBlank()) {
                 MetadataLoadedCard(draft)
             }
+            CoverEditor(
+                draft = draft,
+                onDraftChange = { draft = it },
+                onPickCover = { coverPicker.launch(arrayOf("image/*")) },
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextFieldLine(
                     value = draft.isbn,
@@ -1534,12 +2007,8 @@ private fun AddBookSheet(
             }
             if (!manualEntry) {
                 OutlinedButton(
-                    enabled = draft.isbn.isNotBlank() && !lookupInProgress,
-                    onClick = {
-                        onLookup(draft.isbn) { metadata ->
-                            if (metadata != null) draft = draft.applyMetadata(metadata)
-                        }
-                    },
+                    enabled = draft.isbn.validIsbnOrNull() != null && !lookupInProgress,
+                    onClick = { lookupIfValid(draft.isbn) },
                     shape = RoundedCornerShape(14.dp),
                 ) {
                     Icon(Icons.Outlined.CloudDone, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1550,13 +2019,25 @@ private fun AddBookSheet(
             Text(stringResource(R.string.section_metadata).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextFieldLine(draft.title, { draft = draft.copy(title = it) }, R.string.field_title)
             TextFieldLine(draft.originalScriptTitle, { draft = draft.copy(originalScriptTitle = it) }, R.string.field_original_title)
-            TextFieldLine(draft.authors, { draft = draft.copy(authors = it) }, R.string.field_authors)
+            SuggestedTextFieldLine(
+                value = draft.authors,
+                onValueChange = { draft = draft.copy(authors = it) },
+                suggestions = authorSuggestions,
+                label = R.string.field_authors,
+            )
             TextFieldLine(draft.publisher, { draft = draft.copy(publisher = it) }, R.string.field_publisher)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextFieldLine(draft.publishedYear, { draft = draft.copy(publishedYear = it) }, R.string.field_published_year, Modifier.weight(1f))
                 TextFieldLine(draft.pageCount, { draft = draft.copy(pageCount = it) }, R.string.field_pages, Modifier.weight(1f))
             }
-            TextFieldLine(draft.tags, { draft = draft.copy(tags = it) }, R.string.field_tags)
+            SuggestedTextFieldLine(
+                value = draft.tags,
+                onValueChange = { draft = draft.copy(tags = it) },
+                suggestions = tagSuggestions,
+                label = R.string.field_tags,
+                commaAppend = true,
+            )
+            SynopsisField(draft.notes, { draft = draft.copy(notes = it) })
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LanguageCode.entries.forEach { language ->
                     MorphChip(
@@ -1566,6 +2047,7 @@ private fun AddBookSheet(
                     )
                 }
             }
+            RatingEditor(rating = draft.rating, onRatingChange = { draft = draft.copy(rating = it) })
             ShelfLocationField(draft = draft, onDraftChange = { draft = it })
             Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -1580,11 +2062,149 @@ private fun AddBookSheet(
     }
     if (showScanner) {
         BarcodeScannerSheet(
-            onBarcode = { draft = draft.copy(isbn = it) },
+            onBarcode = {
+                draft = draft.copy(isbn = it)
+                lookupIfValid(it)
+            },
             onDismiss = { showScanner = false },
         )
     }
+    pendingCoverUri?.let { uri ->
+        CropCoverSheet(
+            imageUri = uri,
+            onDismiss = { pendingCoverUri = null },
+            onUseOriginal = {
+                draft = draft.copy(coverImagePath = uri.toString(), coverUrl = "")
+                pendingCoverUri = null
+            },
+            onUseCropped = {
+                val croppedPath = saveCroppedCover(context, uri)
+                draft = draft.copy(coverImagePath = croppedPath ?: uri.toString(), coverUrl = "")
+                pendingCoverUri = null
+            },
+        )
+    }
 }
+
+@Composable
+private fun CoverEditor(
+    draft: BookDraft,
+    onDraftChange: (BookDraft) -> Unit,
+    onPickCover: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)),
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BookCover(draft.toEntity(), modifier = Modifier.width(64.dp).height(96.dp), titleSize = 8)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.section_cover), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextFieldLine(
+                    value = draft.coverUrl,
+                    onValueChange = { onDraftChange(draft.copy(coverUrl = it, coverImagePath = "")) },
+                    label = R.string.field_cover_url,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onPickCover, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
+                        Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.action_choose_cover))
+                    }
+                    TextButton(onClick = { onDraftChange(draft.copy(coverImagePath = "", coverUrl = "")) }) {
+                        Text(stringResource(R.string.action_clear_cover))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CropCoverSheet(
+    imageUri: Uri,
+    onDismiss: () -> Unit,
+    onUseOriginal: () -> Unit,
+    onUseCropped: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.crop_cover_title), style = MaterialTheme.typography.headlineSmall)
+            Text(stringResource(R.string.crop_cover_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(320.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                contentAlignment = Alignment.Center,
+            ) {
+                AsyncImage(
+                    model = imageUri,
+                    contentDescription = stringResource(R.string.content_description_book_cover),
+                    modifier = Modifier.width(190.dp).height(285.dp).clip(RoundedCornerShape(16.dp)),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onUseOriginal, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                    Text(stringResource(R.string.action_use_original))
+                }
+                Button(onClick = onUseCropped, modifier = Modifier.weight(1.25f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                    Text(stringResource(R.string.action_use_cropped))
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+private fun saveCroppedCover(context: Context, uri: Uri): String? =
+    runCatching {
+        val source = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val imageSource = ImageDecoder.createSource(context.contentResolver, uri)
+            ImageDecoder.decodeBitmap(imageSource) { decoder, _, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            }
+        } else {
+            context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+        } ?: return@runCatching null
+        val targetAspect = 2f / 3f
+        val sourceAspect = source.width / source.height.toFloat()
+        val cropWidth: Int
+        val cropHeight: Int
+        if (sourceAspect > targetAspect) {
+            cropHeight = source.height
+            cropWidth = (cropHeight * targetAspect).toInt()
+        } else {
+            cropWidth = source.width
+            cropHeight = (cropWidth / targetAspect).toInt()
+        }
+        val left = ((source.width - cropWidth) / 2).coerceAtLeast(0)
+        val top = ((source.height - cropHeight) / 2).coerceAtLeast(0)
+        val cropped = Bitmap.createBitmap(source, left, top, cropWidth.coerceAtMost(source.width), cropHeight.coerceAtMost(source.height))
+        val directory = File(context.filesDir, "covers").also { it.mkdirs() }
+        val file = File(directory, "custom-cover-${System.currentTimeMillis()}.jpg")
+        file.outputStream().use { output ->
+            cropped.compress(Bitmap.CompressFormat.JPEG, 92, output)
+        }
+        if (cropped != source) cropped.recycle()
+        source.recycle()
+        file.absolutePath
+    }.getOrNull()
 
 @Composable
 private fun MetadataLoadedCard(draft: BookDraft) {
@@ -1609,21 +2229,44 @@ private fun MetadataLoadedCard(draft: BookDraft) {
 }
 
 @Composable
+private fun SynopsisField(value: String, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(stringResource(R.string.field_synopsis)) },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
+        minLines = 4,
+        shape = RoundedCornerShape(14.dp),
+        textStyle = MaterialTheme.typography.bodyMedium,
+        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    )
+}
+
+@Composable
 private fun ShelfLocationField(draft: BookDraft, onDraftChange: (BookDraft) -> Unit) {
-    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ElevatedCard(shape = RoundedCornerShape(20.dp)) {
+        Column(
+            modifier = Modifier
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Icon(Icons.Outlined.Place, contentDescription = null)
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.section_location), style = MaterialTheme.typography.labelSmall)
-                TextFieldLine(draft.room, { onDraftChange(draft.copy(room = it)) }, R.string.field_room)
-                TextFieldLine(draft.unit, { onDraftChange(draft.copy(unit = it)) }, R.string.field_unit)
-                TextFieldLine(draft.shelf, { onDraftChange(draft.copy(shelf = it)) }, R.string.field_shelf)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Outlined.Place, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                Column {
+                    Text(stringResource(R.string.section_location), style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.location_section_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            Icon(Icons.Outlined.Edit, contentDescription = null)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextFieldLine(draft.room, { onDraftChange(draft.copy(room = it)) }, R.string.field_room, Modifier.weight(1f))
+                TextFieldLine(draft.unit, { onDraftChange(draft.copy(unit = it)) }, R.string.field_unit, Modifier.weight(1f))
+            }
+            TextFieldLine(draft.shelf, { onDraftChange(draft.copy(shelf = it)) }, R.string.field_shelf)
+            TextFieldLine(draft.positionNote, { onDraftChange(draft.copy(positionNote = it)) }, R.string.field_position_note)
         }
     }
 }
@@ -1653,6 +2296,61 @@ private fun TextFieldLine(
     )
 }
 
+@Composable
+private fun SuggestedTextFieldLine(
+    value: String,
+    onValueChange: (String) -> Unit,
+    suggestions: List<String>,
+    @StringRes label: Int,
+    modifier: Modifier = Modifier,
+    commaAppend: Boolean = false,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val activeToken = value.substringAfterLast(",").trim()
+    val filtered = suggestions
+        .filter { suggestion ->
+            activeToken.isBlank() || suggestion.contains(activeToken, ignoreCase = true)
+        }
+        .filterNot { suggestion ->
+            value.split(",").map { it.trim().lowercase() }.contains(suggestion.lowercase())
+        }
+        .take(6)
+    Box(modifier = modifier.fillMaxWidth()) {
+        TextFieldLine(
+            value = value,
+            onValueChange = {
+                onValueChange(it)
+                expanded = suggestions.isNotEmpty()
+            },
+            label = label,
+            modifier = Modifier.onFocusChanged { focusState ->
+                expanded = focusState.isFocused && suggestions.isNotEmpty()
+            },
+        )
+        DropdownMenu(expanded = expanded && filtered.isNotEmpty(), onDismissRequest = { expanded = false }) {
+            filtered.forEach { suggestion ->
+                DropdownMenuItem(
+                    text = { Text(suggestion) },
+                    onClick = {
+                        onValueChange(if (commaAppend) value.withCommaSuggestion(suggestion) else suggestion)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun String.withCommaSuggestion(suggestion: String): String {
+    val parts = split(",").map { it.trim() }.filter(String::isNotBlank).toMutableList()
+    if (parts.isNotEmpty()) {
+        parts[parts.lastIndex] = suggestion
+    } else {
+        parts += suggestion
+    }
+    return parts.distinctBy { it.lowercase() }.joinToString(", ")
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun BookDetailSheet(
@@ -1661,6 +2359,10 @@ private fun BookDetailSheet(
     onDismiss: () -> Unit,
     onLoan: () -> Unit,
     onReturn: (LoanEntity) -> Unit,
+    onEdit: () -> Unit,
+    onMove: () -> Unit,
+    onDelete: () -> Unit,
+    onRate: (Float) -> Unit,
 ) {
     val context = LocalContext.current
     val palette = coverPaletteFor(item.book)
@@ -1688,12 +2390,33 @@ private fun BookDetailSheet(
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    IconButton(onClick = onDismiss, colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.28f), contentColor = Color.White)) {
+                    IconButton(
+                        onClick = onDismiss,
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                        ),
+                    ) {
                         Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.content_description_close))
                     }
                     Row {
-                        IconButton(onClick = {}, colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.28f), contentColor = Color.White)) {
-                            Icon(Icons.Outlined.MoreVert, contentDescription = null)
+                        IconButton(
+                            onClick = onEdit,
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                                contentColor = MaterialTheme.colorScheme.onSurface,
+                            ),
+                        ) {
+                            Icon(Icons.Outlined.Edit, contentDescription = stringResource(R.string.action_edit))
+                        }
+                        IconButton(
+                            onClick = onDelete,
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.86f),
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            ),
+                        ) {
+                            Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.action_delete))
                         }
                     }
                 }
@@ -1707,7 +2430,7 @@ private fun BookDetailSheet(
                 )
             }
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(item.book.title, fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 26.sp, lineHeight = 30.sp)
+                Text(item.book.title, style = MaterialTheme.typography.headlineSmall)
                 item.book.originalScriptTitle?.let {
                     Text(it, style = MaterialTheme.typography.titleMedium, lineHeight = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -1719,7 +2442,7 @@ private fun BookDetailSheet(
                     item.book.pageCount?.let { MetadataChip(Icons.Outlined.Description, stringResource(R.string.pages_label, it)) }
                     MetadataChip(Icons.Outlined.Bookmark, stringResource(ReadStatusCode.fromCode(item.book.readStatusCode).labelRes))
                 }
-                LocationCard(item.location.displayBreadcrumb(context))
+                LocationCard(item.location.displayBreadcrumb(context), onMove = onMove)
                 if (item.activeLoan != null) {
                     LoanDetailCard(item = item, loan = item.activeLoan, onReturn = onReturn)
                 } else {
@@ -1729,7 +2452,7 @@ private fun BookDetailSheet(
                         Text(stringResource(R.string.loan_this_book))
                     }
                 }
-                RatingRow(item.book.rating ?: 0f)
+                RatingRow(item.book.rating ?: 0f, onRatingChange = onRate)
                 item.book.notes?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, lineHeight = 23.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -1757,7 +2480,7 @@ private fun MetadataChip(icon: ImageVector, label: String) {
 }
 
 @Composable
-private fun LocationCard(breadcrumb: String) {
+private fun LocationCard(breadcrumb: String, onMove: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surface,
@@ -1773,7 +2496,7 @@ private fun LocationCard(breadcrumb: String) {
                 Text(stringResource(R.string.shelved_at), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(breadcrumb, style = MaterialTheme.typography.labelLarge)
             }
-            OutlinedButton(onClick = {}, shape = RoundedCornerShape(11.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
+            OutlinedButton(onClick = onMove, shape = RoundedCornerShape(11.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
                 Text(stringResource(R.string.action_move))
             }
         }
@@ -1804,14 +2527,25 @@ private fun LoanDetailCard(item: BookListItem, loan: LoanEntity, onReturn: (Loan
 }
 
 @Composable
-private fun RatingRow(rating: Float) {
+private fun RatingEditor(rating: Float, onRatingChange: (Float) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(stringResource(R.string.rating_label), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        RatingRow(rating = rating, onRatingChange = onRatingChange)
+    }
+}
+
+@Composable
+private fun RatingRow(rating: Float, onRatingChange: ((Float) -> Unit)? = null) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         repeat(5) { index ->
+            val value = (index + 1).toFloat()
             Icon(
                 Icons.Outlined.Star,
                 contentDescription = null,
-                tint = if (rating >= index + 0.5f) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.size(19.dp),
+                tint = if (rating >= value) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier
+                    .size(24.dp)
+                    .then(if (onRatingChange != null) Modifier.clickable { onRatingChange(value) } else Modifier),
             )
         }
         Text(stringResource(R.string.rating_value, rating), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1831,7 +2565,7 @@ private fun LoanBookSheet(book: BookEntity, onDismiss: () -> Unit, onSave: (Loan
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.loan_this_book), fontFamily = FontFamily.Serif, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.loan_this_book), style = MaterialTheme.typography.headlineSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 BookCover(book, Modifier.width(44.dp).height(66.dp), titleSize = 8)
                 Column {
@@ -1857,6 +2591,200 @@ private fun LoanBookSheet(book: BookEntity, onDismiss: () -> Unit, onSave: (Loan
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MoveBookSheet(
+    item: BookListItem,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String, String?) -> Unit,
+) {
+    var room by remember(item.book.id) { mutableStateOf(item.location?.room.orEmpty()) }
+    var unit by remember(item.book.id) { mutableStateOf(item.location?.unit.orEmpty()) }
+    var shelf by remember(item.book.id) { mutableStateOf(item.location?.shelf.orEmpty()) }
+    var positionNote by remember(item.book.id) { mutableStateOf(item.book.positionNote.orEmpty()) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.move_book_title), style = MaterialTheme.typography.headlineSmall)
+            Text(item.book.title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextFieldLine(room, { room = it }, R.string.field_room)
+            TextFieldLine(unit, { unit = it }, R.string.field_unit)
+            TextFieldLine(shelf, { shelf = it }, R.string.field_shelf)
+            TextFieldLine(positionNote, { positionNote = it }, R.string.field_position_note)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+                Button(onClick = { onSave(room, unit, shelf, positionNote) }, modifier = Modifier.weight(1.4f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                    Text(stringResource(R.string.action_move))
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ShelfAuditSheet(
+    location: LocationEntity,
+    books: List<BookListItem>,
+    onDismiss: () -> Unit,
+    onBookClick: (BookListItem) -> Unit,
+) {
+    val context = LocalContext.current
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.shelf_audit), style = MaterialTheme.typography.headlineSmall)
+            Text(location.displayBreadcrumb(context), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            CountChip(stringResource(R.string.audit_expected_count, books.size), MaterialTheme.colorScheme.tertiaryContainer)
+            if (books.isEmpty()) {
+                Text(stringResource(R.string.no_books_on_shelf), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                books.forEach { item ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onBookClick(item) }.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        BookCover(item.book, Modifier.width(38.dp).height(58.dp), titleSize = 7)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(item.book.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(item.book.authors.displayAuthors(context), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (item.isOnLoan) {
+                            DueChip(item = item, dueText = stringResource(R.string.loan_on_loan))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NewLoanPickerSheet(
+    items: List<BookListItem>,
+    onDismiss: () -> Unit,
+    onSelect: (BookListItem) -> Unit,
+) {
+    val context = LocalContext.current
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.action_new_loan), style = MaterialTheme.typography.headlineSmall)
+            if (items.isEmpty()) {
+                Text(stringResource(R.string.no_available_books), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 420.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(items, key = { it.book.id }) { item ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onSelect(item) }.padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            BookCover(item.book, Modifier.width(40.dp).height(60.dp), titleSize = 7)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.book.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(item.book.authors.displayAuthors(context), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Icon(Icons.Outlined.Outbound, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun DeleteBookDialog(
+    book: BookEntity,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text(stringResource(R.string.delete_book_title), style = MaterialTheme.typography.headlineSmall) },
+        text = { Text(stringResource(R.string.delete_book_body, book.title)) },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDelete,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Text(stringResource(R.string.action_delete))
+            }
+        },
+    )
+}
+
+@Composable
+private fun LookupFailedDialog(
+    isbn: String,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    fun openSearch(url: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onSuccess {
+            onDismiss()
+        }.onFailure { error ->
+            if (error !is ActivityNotFoundException) throw error
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.SearchOff, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text(stringResource(R.string.lookup_failed_title), style = MaterialTheme.typography.headlineSmall) },
+        text = { Text(stringResource(R.string.lookup_failed_body, isbn)) },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_continue_manual)) }
+        },
+        confirmButton = {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { openSearch("https://www.goodreads.com/search?q=$isbn") }) {
+                    Text(stringResource(R.string.action_search_goodreads))
+                }
+                Button(onClick = { openSearch("https://www.google.com/search?q=$isbn%20book") }, shape = RoundedCornerShape(14.dp)) {
+                    Text(stringResource(R.string.action_search_google))
+                }
+            }
+        },
+    )
+}
+
 @Composable
 private fun ReturnConfirmationDialog(
     loan: LoanEntity,
@@ -1876,7 +2804,7 @@ private fun ReturnConfirmationDialog(
                 Icon(Icons.Outlined.AssignmentReturn, contentDescription = null)
             }
         },
-        title = { Text(stringResource(R.string.mark_returned_title), fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold) },
+        title = { Text(stringResource(R.string.mark_returned_title), style = MaterialTheme.typography.headlineSmall) },
         text = {
             Text(
                 stringResource(R.string.mark_returned_body, location.displayBreadcrumb(context), loan.borrowerName),
@@ -1915,20 +2843,21 @@ private fun Avatar(name: String, size: Dp = 40.dp) {
 
 private data class CoverPalette(val bg: Color, val accent: Color, val fg: Color)
 
-private val CoverPalettes = listOf(
-    CoverPalette(Color(0xFF3B2A22), Color(0xFFC9A84C), Color(0xFFF1E4D0)),
-    CoverPalette(Color(0xFFA8543A), Color(0xFFF3D9A4), Color(0xFFFFF1E2)),
-    CoverPalette(Color(0xFF3D5C33), Color(0xFFC8DCC3), Color(0xFFEFF4EA)),
-    CoverPalette(Color(0xFF26333F), Color(0xFF8FB3C9), Color(0xFFE6EEF4)),
-    CoverPalette(Color(0xFFB58A2B), Color(0xFF3B2A22), Color(0xFFFFF6E0)),
-    CoverPalette(Color(0xFF5A3550), Color(0xFFE0BBD6), Color(0xFFF7E9F4)),
-    CoverPalette(Color(0xFF5C5A2E), Color(0xFFE3E0A8), Color(0xFFF5F3E0)),
-    CoverPalette(Color(0xFF7A3B2E), Color(0xFFEFC9A8), Color(0xFFFBEDE3)),
-)
-
+@Composable
 private fun coverPaletteFor(book: BookEntity): CoverPalette {
+    val scheme = MaterialTheme.colorScheme
+    val palettes = listOf(
+        CoverPalette(scheme.primaryContainer, scheme.primary, scheme.onPrimaryContainer),
+        CoverPalette(scheme.secondaryContainer, scheme.secondary, scheme.onSecondaryContainer),
+        CoverPalette(scheme.tertiaryContainer, scheme.tertiary, scheme.onTertiaryContainer),
+        CoverPalette(scheme.surfaceVariant, scheme.primary, scheme.onSurfaceVariant),
+        CoverPalette(scheme.surfaceContainerHigh, scheme.tertiary, scheme.onSurface),
+        CoverPalette(scheme.primary, scheme.primaryContainer, scheme.onPrimary),
+        CoverPalette(scheme.secondary, scheme.secondaryContainer, scheme.onSecondary),
+        CoverPalette(scheme.tertiary, scheme.tertiaryContainer, scheme.onTertiary),
+    )
     val key = (book.id.takeIf { it > 0 }?.hashCode() ?: book.title.hashCode()).absoluteValue
-    return CoverPalettes[key % CoverPalettes.size]
+    return palettes[key % palettes.size]
 }
 
 @Composable

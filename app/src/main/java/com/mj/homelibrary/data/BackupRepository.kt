@@ -2,6 +2,7 @@ package com.mj.homelibrary.data
 
 import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import androidx.room.withTransaction
 import com.mj.homelibrary.data.entity.BookEntity
 import com.mj.homelibrary.data.entity.LoanEntity
@@ -10,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 class BackupRepository(
     private val context: Context,
@@ -22,6 +24,21 @@ class BackupRepository(
             .put(KEY_LOCATIONS, JSONArray(database.locationDao().getAll().map { it.toJson() }))
             .put(KEY_BOOKS, JSONArray(database.bookDao().getAll().map { it.toJson() }))
             .put(KEY_LOANS, JSONArray(database.loanDao().getAll().map { it.toJson() }))
+        context.contentResolver.openOutputStream(uri)?.use { stream ->
+            stream.writer().use { it.write(snapshot.toString(JSON_INDENT_SPACES)) }
+        }
+    }
+
+    suspend fun exportCompleteBackup(uri: Uri) = withContext(Dispatchers.IO) {
+        val books = database.bookDao().getAll()
+        val snapshot = JSONObject()
+            .put(KEY_SCHEMA_VERSION, SCHEMA_VERSION)
+            .put(KEY_BACKUP_KIND, BACKUP_KIND_COMPLETE)
+            .put(KEY_EXPORTED_AT, System.currentTimeMillis())
+            .put(KEY_LOCATIONS, JSONArray(database.locationDao().getAll().map { it.toJson() }))
+            .put(KEY_BOOKS, JSONArray(books.map { it.toJson() }))
+            .put(KEY_LOANS, JSONArray(database.loanDao().getAll().map { it.toJson() }))
+            .put(KEY_COVER_IMAGES, JSONArray(books.mapNotNull { it.toCoverBackupJson() }))
         context.contentResolver.openOutputStream(uri)?.use { stream ->
             stream.writer().use { it.write(snapshot.toString(JSON_INDENT_SPACES)) }
         }
@@ -70,6 +87,46 @@ class BackupRepository(
         }
     }
 
+    suspend fun importCompleteBackup(uri: Uri) = withContext(Dispatchers.IO) {
+        val text = context.contentResolver.openInputStream(uri)?.use { stream ->
+            stream.bufferedReader().use { it.readText() }
+        } ?: return@withContext
+        val snapshot = JSONObject(text)
+        val restoredCoverPaths = restoreCoverImages(snapshot.optJSONArray(KEY_COVER_IMAGES))
+        val locations = snapshot.optJSONArray(KEY_LOCATIONS).toLocationList()
+        val books = snapshot.optJSONArray(KEY_BOOKS).toBookList().map { book ->
+            val restoredCoverPath = restoredCoverPaths[book.id]
+            if (restoredCoverPath == null) book else book.copy(coverImagePath = restoredCoverPath)
+        }
+        val loans = snapshot.optJSONArray(KEY_LOANS).toLoanList()
+        database.withTransaction {
+            database.loanDao().clear()
+            database.bookDao().clear()
+            database.locationDao().clear()
+            database.locationDao().insertAll(locations)
+            database.bookDao().insertAll(books)
+            database.loanDao().insertAll(loans)
+        }
+    }
+
+    suspend fun importCsv(uri: Uri) = withContext(Dispatchers.IO) {
+        val text = context.contentResolver.openInputStream(uri)?.use { stream ->
+            stream.bufferedReader().use { it.readText() }
+        } ?: return@withContext
+        val existingIsbns = database.bookDao().getAll()
+            .flatMap { listOfNotNull(it.isbn10, it.isbn13) }
+            .map { it.normalizedIsbn() }
+            .toMutableSet()
+        val imported = text.lineSequence()
+            .filter(String::isNotBlank)
+            .drop(1)
+            .mapNotNull { line -> line.parseCsvRow().toBookEntityOrNull(existingIsbns) }
+            .toList()
+        if (imported.isNotEmpty()) {
+            database.bookDao().insertAll(imported)
+        }
+    }
+
     private fun BookEntity.toJson(): JSONObject = JSONObject()
         .put("id", id)
         .put("title", title)
@@ -110,6 +167,43 @@ class BackupRepository(
         .put("expectedReturnDateEpochMillis", expectedReturnDateEpochMillis)
         .put("actualReturnDateEpochMillis", actualReturnDateEpochMillis)
         .put("notes", notes)
+
+    private fun BookEntity.toCoverBackupJson(): JSONObject? {
+        val imagePath = coverImagePath?.takeIf(String::isNotBlank) ?: return null
+        val bytes = runCatching {
+            if (imagePath.startsWith("content://")) {
+                context.contentResolver.openInputStream(Uri.parse(imagePath))?.use { it.readBytes() }
+            } else {
+                File(imagePath).takeIf { it.exists() && it.isFile }?.readBytes()
+            }
+        }.getOrNull() ?: return null
+        if (bytes.isEmpty()) return null
+        return JSONObject()
+            .put("bookId", id)
+            .put("fileName", "book-$id-cover.jpg")
+            .put("mimeType", "image/jpeg")
+            .put("dataBase64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+    }
+
+    private fun restoreCoverImages(array: JSONArray?): Map<Long, String> {
+        if (array == null) return emptyMap()
+        val directory = File(context.filesDir, COVER_DIRECTORY).also { it.mkdirs() }
+        return buildMap {
+            for (index in 0 until array.length()) {
+                val json = array.optJSONObject(index) ?: continue
+                val bookId = json.optLong("bookId").takeIf { it > 0L } ?: continue
+                val data = json.optString("dataBase64").takeIf(String::isNotBlank) ?: continue
+                val bytes = runCatching { Base64.decode(data, Base64.DEFAULT) }.getOrNull() ?: continue
+                val fileName = json.optString("fileName").takeIf(String::isNotBlank)?.safeBackupFileName()
+                    ?: "book-$bookId-cover.jpg"
+                val file = File(directory, fileName)
+                runCatching {
+                    file.outputStream().use { it.write(bytes) }
+                    put(bookId, file.absolutePath)
+                }
+            }
+        }
+    }
 
     private fun JSONArray?.toBookList(): List<BookEntity> {
         if (this == null) return emptyList()
@@ -189,14 +283,71 @@ class BackupRepository(
 
     private fun String.csvEscape(): String = "\"${replace("\"", "\"\"")}\""
 
+    private fun String.parseCsvRow(): List<String> {
+        val values = mutableListOf<String>()
+        val current = StringBuilder()
+        var quoted = false
+        var index = 0
+        while (index < length) {
+            val char = this[index]
+            when {
+                char == '"' && quoted && getOrNull(index + 1) == '"' -> {
+                    current.append('"')
+                    index++
+                }
+                char == '"' -> quoted = !quoted
+                char == ',' && !quoted -> {
+                    values += current.toString()
+                    current.clear()
+                }
+                else -> current.append(char)
+            }
+            index++
+        }
+        values += current.toString()
+        return values
+    }
+
+    private fun List<String>.toBookEntityOrNull(existingIsbns: MutableSet<String>): BookEntity? {
+        val title = getOrNull(0)?.trim().orEmpty()
+        if (title.isBlank()) return null
+        val isbn13 = getOrNull(3)?.normalizedIsbn13OrNull()
+        val isbn10 = getOrNull(4)?.normalizedIsbn10OrNull()
+        val candidateIsbns = listOfNotNull(isbn10, isbn13)
+        if (candidateIsbns.any { it in existingIsbns }) return null
+        existingIsbns += candidateIsbns
+        return BookEntity(
+            title = title,
+            authors = getOrNull(1).semicolonList(),
+            languageCode = getOrNull(2)?.trim()?.takeIf(String::isNotBlank) ?: "en",
+            isbn13 = isbn13,
+            isbn10 = isbn10,
+            publisher = getOrNull(5)?.trim()?.takeIf(String::isNotBlank),
+            publishedYear = getOrNull(6)?.trim()?.toIntOrNull(),
+            tags = getOrNull(7).semicolonList(),
+            readStatusCode = getOrNull(8)?.trim()?.takeIf(String::isNotBlank) ?: "unread",
+            rating = getOrNull(9)?.trim()?.toFloatOrNull()?.takeIf { it > 0f },
+        )
+    }
+
+    private fun String?.semicolonList(): List<String> =
+        orEmpty().split(";").map { it.trim() }.filter(String::isNotBlank)
+
+    private fun String.safeBackupFileName(): String =
+        replace(Regex("""[^A-Za-z0-9._-]"""), "_").take(80).ifBlank { "cover.jpg" }
+
     private companion object {
         const val SCHEMA_VERSION = 1
         const val JSON_INDENT_SPACES = 2
+        const val COVER_DIRECTORY = "covers"
         const val KEY_SCHEMA_VERSION = "schemaVersion"
+        const val KEY_BACKUP_KIND = "backupKind"
+        const val BACKUP_KIND_COMPLETE = "complete"
         const val KEY_EXPORTED_AT = "exportedAtEpochMillis"
         const val KEY_BOOKS = "books"
         const val KEY_LOCATIONS = "locations"
         const val KEY_LOANS = "loans"
+        const val KEY_COVER_IMAGES = "coverImages"
         const val CSV_HEADER = "title,authors,language,isbn13,isbn10,publisher,published_year,tags,read_status,rating"
     }
 }

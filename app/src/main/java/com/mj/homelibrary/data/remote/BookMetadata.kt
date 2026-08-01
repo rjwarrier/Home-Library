@@ -4,6 +4,7 @@ data class BookMetadata(
     val title: String,
     val subtitle: String? = null,
     val authors: List<String> = emptyList(),
+    val tags: List<String> = emptyList(),
     val publisher: String? = null,
     val publishedYear: Int? = null,
     val pageCount: Int? = null,
@@ -11,4 +12,6 @@ data class BookMetadata(
     val languageCode: String = "en",
     val isbn10: String? = null,
     val isbn13: String? = null,
+    val formatCode: String? = null,
+    val notes: String? = null,
 )

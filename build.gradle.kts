@@ -5,4 +5,5 @@ plugins {
     alias(libs.plugins.ksp) apply false
 }
 
-layout.buildDirectory.set(file(".out-redesign/root-build"))
+val homeLibraryBuildRoot = providers.gradleProperty("homeLibraryBuildRoot").orElse(".out-redesign").get()
+layout.buildDirectory.set(file("$homeLibraryBuildRoot/root-build"))

@@ -36,7 +36,6 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.FlashlightOn
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -61,7 +60,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,11 +70,29 @@ import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import com.mj.homelibrary.R
+import com.mj.homelibrary.data.validIsbnOrNull
 
-private val ScannerBackground = Color(0xFF0C0906)
-private val ScannerText = Color(0xFFF4EADA)
-private val ScannerAccent = Color(0xFFE4BE7A)
-private val ScannerAccentOn = Color(0xFF3E2800)
+private data class ScannerThemeColors(
+    val background: Color,
+    val onBackground: Color,
+    val panel: Color,
+    val onPanel: Color,
+    val accent: Color,
+    val onAccent: Color,
+)
+
+@Composable
+private fun scannerThemeColors(): ScannerThemeColors {
+    val scheme = MaterialTheme.colorScheme
+    return ScannerThemeColors(
+        background = scheme.surface,
+        onBackground = scheme.onSurface,
+        panel = scheme.surfaceContainerHigh,
+        onPanel = scheme.onSurface,
+        accent = scheme.primary,
+        onAccent = scheme.onPrimary,
+    )
+}
 
 @Composable
 fun BarcodeScannerSheet(
@@ -102,7 +118,8 @@ fun BarcodeScannerSheet(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
-        Surface(modifier = Modifier.fillMaxSize(), color = ScannerBackground, contentColor = ScannerText) {
+        val scannerColors = scannerThemeColors()
+        Surface(modifier = Modifier.fillMaxSize(), color = scannerColors.background, contentColor = scannerColors.onBackground) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -115,7 +132,7 @@ fun BarcodeScannerSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ScannerCircleButton(icon = Icons.Outlined.Close, onClick = onDismiss, contentDescription = stringResource(R.string.content_description_close))
-                    Text(stringResource(R.string.action_scan_isbn), fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                    Text(stringResource(R.string.action_scan_isbn), style = MaterialTheme.typography.titleMedium)
                     ScannerCircleButton(icon = Icons.Outlined.FlashlightOn, onClick = {}, contentDescription = null)
                 }
 
@@ -129,28 +146,31 @@ fun BarcodeScannerSheet(
                     text = stringResource(R.string.scanner_instruction_body),
                     style = MaterialTheme.typography.bodyMedium,
                     lineHeight = 22.sp,
-                    color = ScannerText.copy(alpha = 0.78f),
+                    color = scannerColors.onBackground.copy(alpha = 0.78f),
                 )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)
-                        .border(1.dp, ScannerAccent.copy(alpha = 0.30f), RoundedCornerShape(18.dp))
-                        .background(ScannerAccent.copy(alpha = 0.14f), RoundedCornerShape(18.dp))
+                        .border(1.dp, scannerColors.accent.copy(alpha = 0.30f), RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.56f), RoundedCornerShape(18.dp))
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Switch(checked = bulkScan, onCheckedChange = { bulkScan = it })
-                    Text(stringResource(R.string.bulk_scan), modifier = Modifier.weight(1f), fontFamily = FontFamily.Serif, fontWeight = FontWeight.Medium)
-                    Text(stringResource(R.string.bulk_scan_count, 0), color = ScannerText.copy(alpha = 0.72f), fontSize = 12.sp)
+                    Text(stringResource(R.string.bulk_scan), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        stringResource(R.string.bulk_scan_count, 0),
+                        color = scannerColors.onBackground.copy(alpha = 0.72f),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
                 }
                 Spacer(Modifier.weight(1f))
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ScannerAccent, contentColor = ScannerAccentOn),
                 ) {
                     Text(stringResource(R.string.review_books, 0))
                 }
@@ -168,7 +188,10 @@ private fun ScannerCircleButton(
     IconButton(
         onClick = onClick,
         modifier = Modifier.size(44.dp),
-        colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = 0.10f), contentColor = ScannerText),
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
     ) {
         Icon(icon, contentDescription = contentDescription)
     }
@@ -180,14 +203,14 @@ private fun PermissionPanel(onGrant: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(230.dp)
-            .background(Color(0xFF241A12), RoundedCornerShape(24.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(24.dp))
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(Icons.Outlined.QrCodeScanner, contentDescription = null, modifier = Modifier.size(52.dp), tint = ScannerAccent)
-        Text(stringResource(R.string.scanner_permission_needed), color = ScannerText)
-        Button(onClick = onGrant, colors = ButtonDefaults.buttonColors(containerColor = ScannerAccent, contentColor = ScannerAccentOn)) {
+        Icon(Icons.Outlined.QrCodeScanner, contentDescription = null, modifier = Modifier.size(52.dp), tint = MaterialTheme.colorScheme.primary)
+        Text(stringResource(R.string.scanner_permission_needed), color = MaterialTheme.colorScheme.onSurface)
+        Button(onClick = onGrant) {
             Text(stringResource(R.string.action_grant_permission))
         }
     }
@@ -200,7 +223,13 @@ private fun ScannerViewfinder(onBarcode: (String) -> Unit) {
             .fillMaxWidth()
             .height(230.dp)
             .background(
-                Brush.linearGradient(listOf(Color(0xFF241A12), Color(0xFF120D09), Color(0xFF1C140E))),
+                Brush.linearGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.surfaceContainerHigh,
+                        MaterialTheme.colorScheme.surfaceContainerLow,
+                        MaterialTheme.colorScheme.surfaceContainerHighest,
+                    ),
+                ),
                 RoundedCornerShape(24.dp),
             ),
         contentAlignment = Alignment.Center,
@@ -212,6 +241,7 @@ private fun ScannerViewfinder(onBarcode: (String) -> Unit) {
 
 @Composable
 private fun ScannerReticle(modifier: Modifier = Modifier) {
+    val accent = MaterialTheme.colorScheme.primary
     val transition = rememberInfiniteTransition(label = "scanner")
     val sweep by transition.animateFloat(
         initialValue = 0f,
@@ -221,7 +251,7 @@ private fun ScannerReticle(modifier: Modifier = Modifier) {
     )
     Canvas(modifier = modifier) {
         drawRoundRect(
-            color = ScannerAccent.copy(alpha = 0.35f),
+            color = accent.copy(alpha = 0.35f),
             style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
             cornerRadius = CornerRadius(16.dp.toPx()),
         )
@@ -229,14 +259,14 @@ private fun ScannerReticle(modifier: Modifier = Modifier) {
         val stroke = 3.dp.toPx()
         val w = size.width
         val h = size.height
-        fun line(start: Offset, end: Offset) = drawLine(ScannerAccent, start, end, strokeWidth = stroke)
+        fun line(start: Offset, end: Offset) = drawLine(accent, start, end, strokeWidth = stroke)
         line(Offset.Zero, Offset(corner, 0f)); line(Offset.Zero, Offset(0f, corner))
         line(Offset(w, 0f), Offset(w - corner, 0f)); line(Offset(w, 0f), Offset(w, corner))
         line(Offset(0f, h), Offset(corner, h)); line(Offset(0f, h), Offset(0f, h - corner))
         line(Offset(w, h), Offset(w - corner, h)); line(Offset(w, h), Offset(w, h - corner))
         val y = h * sweep
         drawRect(
-            brush = Brush.horizontalGradient(listOf(Color.Transparent, ScannerAccent, Color.Transparent)),
+            brush = Brush.horizontalGradient(listOf(Color.Transparent, accent, Color.Transparent)),
             topLeft = Offset(0f, y),
             size = Size(w, 2.dp.toPx()),
         )
@@ -312,8 +342,8 @@ private fun processBarcodeImage(
     val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
     scanner.process(image)
         .addOnSuccessListener { barcodes ->
-            val rawValue = barcodes.firstOrNull()?.rawValue?.filter(Char::isDigit)
-            if (!rawValue.isNullOrBlank()) {
+            val rawValue = barcodes.firstOrNull()?.rawValue?.validIsbnOrNull()
+            if (rawValue != null) {
                 onHandled()
                 onBarcode(rawValue)
             }

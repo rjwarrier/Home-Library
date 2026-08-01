@@ -5,7 +5,8 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-layout.buildDirectory.set(file("../.out-redesign/app-build"))
+val homeLibraryBuildRoot = providers.gradleProperty("homeLibraryBuildRoot").orElse(".out-redesign").get()
+layout.buildDirectory.set(rootProject.file("$homeLibraryBuildRoot/app-build"))
 
 android {
     namespace = "com.mj.homelibrary"
