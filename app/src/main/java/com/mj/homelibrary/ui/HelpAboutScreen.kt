@@ -159,6 +159,8 @@ fun HelpAboutScreen(onBack: () -> Unit) {
             }
         }
         item {
+            val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+            val copiedMessage = stringResource(R.string.help_package_copied)
             AboutFooter(
                 onShare = {
                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -166,6 +168,10 @@ fun HelpAboutScreen(onBack: () -> Unit) {
                         putExtra(Intent.EXTRA_TEXT, context.getString(R.string.help_share_home_library_text))
                     }
                     context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.help_share_home_library)))
+                },
+                onCopyPackage = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(BuildConfig.APPLICATION_ID))
+                    android.widget.Toast.makeText(context, copiedMessage, android.widget.Toast.LENGTH_SHORT).show()
                 },
             )
         }
@@ -336,7 +342,7 @@ private fun CollapsibleHelpCard(
 }
 
 @Composable
-private fun AboutFooter(onShare: () -> Unit) {
+private fun AboutFooter(onShare: () -> Unit, onCopyPackage: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -370,7 +376,7 @@ private fun AboutFooter(onShare: () -> Unit) {
                 icon = Icons.Outlined.Info,
                 labelRes = R.string.help_footer_package,
                 detail = BuildConfig.APPLICATION_ID,
-                onClick = {},
+                onClick = onCopyPackage,
             )
         }
     }
