@@ -14,8 +14,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -30,6 +33,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -150,6 +158,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -157,6 +167,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -194,6 +205,7 @@ import java.time.Year
 import java.io.File
 import kotlin.math.absoluteValue
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 private val GridMinCellSize = 148.dp
 private val ScreenMaxWidth = 600.dp
@@ -670,10 +682,16 @@ private fun GranthapuraNavigationBar(selectedTab: HomeTab, onSelect: (HomeTab) -
         tonalElevation = 3.dp,
     ) {
         HomeTab.entries.forEach { tab ->
+            val isSelected = selectedTab == tab
+            val iconScale by animateFloatAsState(
+                if (isSelected) 1.15f else 1f,
+                animationSpec = ExpressiveSpring,
+                label = "navIconScale",
+            )
             NavigationBarItem(
-                selected = selectedTab == tab,
+                selected = isSelected,
                 onClick = { onSelect(tab) },
-                icon = { Icon(tab.icon, contentDescription = null) },
+                icon = { Icon(tab.icon, contentDescription = null, modifier = Modifier.scale(iconScale)) },
                 label = {
                     Text(
                         text = stringResource(tab.labelRes),
@@ -1037,6 +1055,14 @@ private fun FilterStrip(
     }
 }
 
+private val ExpressiveSpring = spring<Float>(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
+
+@Composable
+private fun rememberPressScale(interactionSource: InteractionSource): androidx.compose.runtime.State<Float> {
+    val isPressed by interactionSource.collectIsPressedAsState()
+    return animateFloatAsState(if (isPressed) 0.94f else 1f, animationSpec = ExpressiveSpring, label = "pressScale")
+}
+
 @Composable
 private fun MorphChip(selected: Boolean, label: String, trailing: ImageVector? = null, onClick: () -> Unit) {
     val cornerRadius by animateDpAsState(if (selected) 12.dp else 999.dp, label = "chipMorph")
@@ -1059,8 +1085,12 @@ private fun MorphChip(selected: Boolean, label: String, trailing: ImageVector? =
 @Composable
 private fun BookGridCard(item: BookListItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val context = LocalContext.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale by rememberPressScale(interactionSource)
     Column(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier
+            .scale(pressScale)
+            .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box {
@@ -1736,6 +1766,10 @@ private fun StatsScreen(
 
 @Composable
 private fun StatsHero(total: Int, onLoan: Int) {
+    var animateIn by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { animateIn = true }
+    val animatedTotal by animateIntAsState(if (animateIn) total else 0, animationSpec = tween(900), label = "totalBooksCount")
+    val animatedOnLoan by animateIntAsState(if (animateIn) onLoan else 0, animationSpec = tween(900), label = "onLoanCount")
     Card(
         shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
@@ -1747,11 +1781,11 @@ private fun StatsHero(total: Int, onLoan: Int) {
         ) {
             Column {
                 Text(stringResource(R.string.stats_total_books_eyebrow), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.4.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f))
-                Text(total.toString(), style = MaterialTheme.typography.displayLarge)
+                Text(animatedTotal.toString(), style = MaterialTheme.typography.displayLarge)
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(stringResource(R.string.stats_on_loan), style = MaterialTheme.typography.labelMedium)
-                Text(onLoan.toString(), style = MaterialTheme.typography.headlineSmall)
+                Text(animatedOnLoan.toString(), style = MaterialTheme.typography.headlineSmall)
             }
         }
     }
@@ -2133,11 +2167,15 @@ private fun SettingsRouteContent(
 
 @Composable
 private fun AppearanceEntryCard(onOpenAppearance: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale by rememberPressScale(interactionSource)
     ElevatedCard(
         onClick = onOpenAppearance,
+        interactionSource = interactionSource,
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.scale(pressScale),
     ) {
         Row(
             modifier = Modifier
@@ -2172,11 +2210,15 @@ private fun SettingsEntryCard(
     body: String,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale by rememberPressScale(interactionSource)
     ElevatedCard(
         onClick = onClick,
+        interactionSource = interactionSource,
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.scale(pressScale),
     ) {
         Row(
             modifier = Modifier
@@ -2299,9 +2341,15 @@ private fun GranthapuraFabMenu(
                 }
             }
         }
+        val fabInteractionSource = remember { MutableInteractionSource() }
+        val fabPressScale by rememberPressScale(fabInteractionSource)
         FloatingActionButton(
             onClick = onToggle,
-            modifier = Modifier.size(dimensionResource(R.dimen.fab_size)).shadow(10.dp, RoundedCornerShape(if (expanded) 28.dp else 20.dp)),
+            interactionSource = fabInteractionSource,
+            modifier = Modifier
+                .size(dimensionResource(R.dimen.fab_size))
+                .scale(fabPressScale)
+                .shadow(10.dp, RoundedCornerShape(if (expanded) 28.dp else 20.dp)),
             shape = RoundedCornerShape(if (expanded) 28.dp else 20.dp),
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -2313,10 +2361,14 @@ private fun GranthapuraFabMenu(
 
 @Composable
 private fun ScreenFab(icon: ImageVector, label: String, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale by rememberPressScale(interactionSource)
     FloatingActionButton(
         onClick = onClick,
+        interactionSource = interactionSource,
         modifier = Modifier
             .size(dimensionResource(R.dimen.fab_size))
+            .scale(pressScale)
             .shadow(8.dp, RoundedCornerShape(22.dp)),
         shape = RoundedCornerShape(22.dp),
         containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -2621,8 +2673,7 @@ private fun AddBookSheet(
                 draft = draft.copy(coverImagePath = uri.toString(), coverUrl = "")
                 pendingCoverUri = null
             },
-            onUseCropped = {
-                val croppedPath = saveCroppedCover(context, uri)
+            onUseCropped = { croppedPath ->
                 draft = draft.copy(coverImagePath = croppedPath ?: uri.toString(), coverUrl = "")
                 pendingCoverUri = null
             },
@@ -2672,14 +2723,27 @@ private fun CoverEditor(
     }
 }
 
+private val CropFrameWidth = 190.dp
+private val CropFrameHeight = 285.dp
+private const val CropMaxScale = 4f
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CropCoverSheet(
     imageUri: Uri,
     onDismiss: () -> Unit,
     onUseOriginal: () -> Unit,
-    onUseCropped: () -> Unit,
+    onUseCropped: (String?) -> Unit,
 ) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    var scale by remember(imageUri) { mutableStateOf(1f) }
+    var offset by remember(imageUri) { mutableStateOf(Offset.Zero) }
+    val frameWidthPx = with(density) { CropFrameWidth.toPx() }
+    val frameHeightPx = with(density) { CropFrameHeight.toPx() }
+    val scaleAnim by animateFloatAsState(scale, label = "cropScale")
+    val offsetAnim by animateOffsetAsState(offset, label = "cropOffset")
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
@@ -2699,18 +2763,63 @@ private fun CropCoverSheet(
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                 contentAlignment = Alignment.Center,
             ) {
-                AsyncImage(
-                    model = imageUri,
-                    contentDescription = stringResource(R.string.content_description_book_cover),
-                    modifier = Modifier.width(190.dp).height(285.dp).clip(RoundedCornerShape(16.dp)),
-                    contentScale = ContentScale.Crop,
-                )
+                Box(
+                    modifier = Modifier
+                        .width(CropFrameWidth)
+                        .height(CropFrameHeight)
+                        .clip(RoundedCornerShape(16.dp)),
+                ) {
+                    AsyncImage(
+                        model = imageUri,
+                        contentDescription = stringResource(R.string.content_description_book_cover),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = scaleAnim
+                                scaleY = scaleAnim
+                                translationX = offsetAnim.x
+                                translationY = offsetAnim.y
+                            }
+                            .pointerInput(imageUri) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    val newScale = (scale * zoom).coerceIn(1f, CropMaxScale)
+                                    val maxOffsetX = (frameWidthPx * (newScale - 1f)) / 2f
+                                    val maxOffsetY = (frameHeightPx * (newScale - 1f)) / 2f
+                                    offset = Offset(
+                                        (offset.x + pan.x).coerceIn(-maxOffsetX, maxOffsetX),
+                                        (offset.y + pan.y).coerceIn(-maxOffsetY, maxOffsetY),
+                                    )
+                                    scale = newScale
+                                }
+                            },
+                        contentScale = ContentScale.Crop,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(16.dp)),
+                    )
+                }
+            }
+            if (scale > 1f) {
+                TextButton(
+                    onClick = { scale = 1f; offset = Offset.Zero },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) {
+                    Text(stringResource(R.string.action_reset_crop))
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onUseOriginal, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
                     Text(stringResource(R.string.action_use_original))
                 }
-                Button(onClick = onUseCropped, modifier = Modifier.weight(1.25f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                Button(
+                    onClick = {
+                        onUseCropped(saveCroppedCover(context, imageUri, scale, offset, frameWidthPx, frameHeightPx))
+                    },
+                    modifier = Modifier.weight(1.25f).height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
                     Text(stringResource(R.string.action_use_cropped))
                 }
             }
@@ -2719,7 +2828,14 @@ private fun CropCoverSheet(
     }
 }
 
-private fun saveCroppedCover(context: Context, uri: Uri): String? =
+private fun saveCroppedCover(
+    context: Context,
+    uri: Uri,
+    userScale: Float,
+    userOffsetPx: Offset,
+    frameWidthPx: Float,
+    frameHeightPx: Float,
+): String? =
     runCatching {
         val source = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val imageSource = ImageDecoder.createSource(context.contentResolver, uri)
@@ -2729,20 +2845,22 @@ private fun saveCroppedCover(context: Context, uri: Uri): String? =
         } else {
             context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
         } ?: return@runCatching null
-        val targetAspect = 2f / 3f
-        val sourceAspect = source.width / source.height.toFloat()
-        val cropWidth: Int
-        val cropHeight: Int
-        if (sourceAspect > targetAspect) {
-            cropHeight = source.height
-            cropWidth = (cropHeight * targetAspect).toInt()
-        } else {
-            cropWidth = source.width
-            cropHeight = (cropWidth / targetAspect).toInt()
-        }
-        val left = ((source.width - cropWidth) / 2).coerceAtLeast(0)
-        val top = ((source.height - cropHeight) / 2).coerceAtLeast(0)
-        val cropped = Bitmap.createBitmap(source, left, top, cropWidth.coerceAtMost(source.width), cropHeight.coerceAtMost(source.height))
+
+        val baseScale = max(frameWidthPx / source.width, frameHeightPx / source.height)
+        val totalScale = baseScale * userScale
+        val displayedWidth = source.width * totalScale
+        val displayedHeight = source.height * totalScale
+
+        val srcWidth = (frameWidthPx / totalScale)
+        val srcHeight = (frameHeightPx / totalScale)
+        val srcX = ((displayedWidth / 2f - userOffsetPx.x - frameWidthPx / 2f) / totalScale)
+            .coerceIn(0f, (source.width - srcWidth).coerceAtLeast(0f))
+        val srcY = ((displayedHeight / 2f - userOffsetPx.y - frameHeightPx / 2f) / totalScale)
+            .coerceIn(0f, (source.height - srcHeight).coerceAtLeast(0f))
+
+        val cropWidth = srcWidth.roundToInt().coerceIn(1, source.width - srcX.roundToInt())
+        val cropHeight = srcHeight.roundToInt().coerceIn(1, source.height - srcY.roundToInt())
+        val cropped = Bitmap.createBitmap(source, srcX.roundToInt(), srcY.roundToInt(), cropWidth, cropHeight)
         val directory = File(context.filesDir, "covers").also { it.mkdirs() }
         val file = File(directory, "custom-cover-${System.currentTimeMillis()}.jpg")
         file.outputStream().use { output ->
@@ -3089,12 +3207,15 @@ private fun RatingRow(rating: Float, onRatingChange: ((Float) -> Unit)? = null) 
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         repeat(5) { index ->
             val value = (index + 1).toFloat()
+            val filled = rating >= value
+            val starScale by animateFloatAsState(if (filled) 1.1f else 1f, animationSpec = ExpressiveSpring, label = "starScale")
             Icon(
                 Icons.Outlined.Star,
                 contentDescription = null,
-                tint = if (rating >= value) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant,
+                tint = if (filled) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier
                     .size(24.dp)
+                    .scale(starScale)
                     .then(if (onRatingChange != null) Modifier.clickable { onRatingChange(value) } else Modifier),
             )
         }

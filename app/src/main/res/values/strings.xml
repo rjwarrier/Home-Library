@@ -316,6 +316,7 @@
     <string name="shortcut_scan_short_label">Scan book</string>
     <string name="shortcut_scan_long_label">Scan a book barcode</string>
     <string name="action_call_borrower">Call borrower</string>
+    <string name="action_reset_crop">Reset</string>
     <string name="stats_total_books">Total books</string>
     <string name="stats_on_loan">On loan</string>
     <string name="stats_finished">Finished</string>
