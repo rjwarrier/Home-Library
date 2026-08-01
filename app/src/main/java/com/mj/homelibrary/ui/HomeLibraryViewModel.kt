@@ -25,6 +25,7 @@ import com.mj.homelibrary.data.normalizedIsbn
 import com.mj.homelibrary.data.normalizedIsbn10OrNull
 import com.mj.homelibrary.data.normalizedIsbn13OrNull
 import com.mj.homelibrary.data.remote.BookMetadata
+import com.mj.homelibrary.worker.BackupReminderWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -52,6 +53,10 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
     val appearanceSettings = appearanceRepository.settings
     val librarySettings = librarySettingsRepository.settings
 
+    init {
+        BackupReminderWorker.reschedule(WorkManager.getInstance(application), librarySettings.value.backupReminderDays)
+    }
+
     val state: StateFlow<HomeLibraryUiState> = combine(
         repository.books,
         repository.locations,
@@ -60,11 +65,13 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         transient,
     ) { books, locations, loans, filters, transient ->
         val activeLoans = loans.filter { it.actualReturnDateEpochMillis == null }
+        val locationById = locations.associateBy { it.id }
+        val activeLoanByBookId = activeLoans.associateBy { it.bookId }
         val items = books.map { book ->
             BookListItem(
                 book = book,
-                location = locations.firstOrNull { it.id == book.locationId },
-                activeLoan = activeLoans.firstOrNull { it.bookId == book.id },
+                location = locationById[book.locationId],
+                activeLoan = activeLoanByBookId[book.id],
             )
         }.filter(filters::matches)
             .sortedWith(filters.sort.comparator())
@@ -119,6 +126,10 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         filters.update { it.copy(tag = tag) }
     }
 
+    fun clearFilters() {
+        filters.update { it.copy(query = "", languageCode = null, readStatusCode = null, onLoanOnly = false, locationId = null, tag = null) }
+    }
+
     fun setThemePreference(preference: ThemePreference) {
         appearanceRepository.setThemePreference(preference)
     }
@@ -165,6 +176,11 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setBackupReminderDays(days: Int) {
         librarySettingsRepository.setBackupReminderDays(days)
+        BackupReminderWorker.reschedule(WorkManager.getInstance(getApplication()), librarySettingsRepository.settings.value.backupReminderDays)
+    }
+
+    fun setReadingGoal(goal: Int) {
+        librarySettingsRepository.setReadingGoal(goal)
     }
 
     fun addBook(draft: BookDraft, onSaved: () -> Unit) {
@@ -538,9 +554,11 @@ fun BookEntity.toBookDraft(): BookDraft = BookDraft(
 private fun Long.toLocalYear(): Int =
     java.time.Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).year
 
+private val CombiningMarksRegex = Regex("\\p{InCombiningDiacriticalMarks}+")
+
 private fun String.searchKey(): String =
     Normalizer.normalize(lowercase(), Normalizer.Form.NFD)
-        .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+        .replace(CombiningMarksRegex, "")
 
 private fun String.toEpochMillisOrNull(): Long? =
     runCatching {

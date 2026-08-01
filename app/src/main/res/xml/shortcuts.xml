@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="scan_book"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_scan_short_label"
+        android:shortcutLongLabel="@string/shortcut_scan_long_label">
+        <intent
+            android:action="com.mj.homelibrary.action.SCAN_BOOK"
+            android:targetPackage="com.mj.homelibrary"
+            android:targetClass="com.mj.homelibrary.MainActivity" />
+    </shortcut>
+</shortcuts>

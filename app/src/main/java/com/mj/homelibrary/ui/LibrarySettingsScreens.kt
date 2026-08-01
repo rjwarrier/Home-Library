@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CloudDone
+import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Notifications
@@ -59,6 +60,7 @@ fun LibraryPreferencesScreen(
     onBack: () -> Unit,
     onDefaultGridModeChange: (Boolean) -> Unit,
     onDefaultSortChange: (BookSortCode) -> Unit,
+    onReadingGoalChange: (Int) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -95,6 +97,21 @@ fun LibraryPreferencesScreen(
                         )
                     }
                 }
+            }
+        }
+        item {
+            SettingsControlCard(icon = Icons.Outlined.EmojiEvents, titleRes = R.string.settings_reading_goal_title) {
+                Text(
+                    text = stringResource(R.string.settings_reading_goal_desc, settings.readingGoal),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Slider(
+                    value = settings.readingGoal.toFloat(),
+                    onValueChange = { onReadingGoalChange(it.roundToInt()) },
+                    valueRange = 1f..100f,
+                    steps = 98,
+                )
             }
         }
     }

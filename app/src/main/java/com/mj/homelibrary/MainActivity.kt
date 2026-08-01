@@ -14,11 +14,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val homeLibraryApplication = application as HomeLibraryApplication
+        val startInScanMode = intent?.action == ACTION_SCAN_BOOK
         setContent {
             val appearanceSettings by homeLibraryApplication.appearanceRepository.settings.collectAsStateWithLifecycle()
             HomeLibraryTheme(appearanceSettings = appearanceSettings) {
-                HomeLibraryApp()
+                HomeLibraryApp(startInScanMode = startInScanMode)
             }
         }
+    }
+
+    companion object {
+        const val ACTION_SCAN_BOOK = "com.mj.homelibrary.action.SCAN_BOOK"
     }
 }

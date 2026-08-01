@@ -8,17 +8,24 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,6 +49,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -76,7 +84,6 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Handshake
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MenuBook
-import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Outbound
 import androidx.compose.material.icons.outlined.People
@@ -122,10 +129,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -136,8 +146,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -222,7 +235,7 @@ private fun List<String>.distinctSorted(): List<String> =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
+fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val appearanceSettings by viewModel.appearanceSettings.collectAsStateWithLifecycle()
     val librarySettings by viewModel.librarySettings.collectAsStateWithLifecycle()
@@ -244,6 +257,46 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
     var showNewLoanPicker by remember { mutableStateOf(false) }
     var loanBook by remember { mutableStateOf<BookEntity?>(null) }
     var returnLoan by remember { mutableStateOf<LoanEntity?>(null) }
+    var bulkQueue by remember { mutableStateOf<List<String>>(emptyList()) }
+    var bulkIndex by remember { mutableStateOf(0) }
+    val haptics = LocalHapticFeedback.current
+
+    fun openBookForIsbn(isbn: String) {
+        val existingBook = state.allBooks.firstOrNull { it.matchesIsbn(isbn) }
+        if (existingBook != null) {
+            editBook = existingBook.toListItem(state)
+            enrichExistingBookId = existingBook.id
+            selectedBook = null
+            showAddBook = false
+        } else {
+            scannedIsbn = isbn
+            manualEntry = false
+            showAddBook = true
+        }
+    }
+
+    fun advanceBulkQueue() {
+        if (bulkQueue.isEmpty()) return
+        val nextIndex = bulkIndex + 1
+        if (nextIndex >= bulkQueue.size) {
+            bulkQueue = emptyList()
+            bulkIndex = 0
+        } else {
+            bulkIndex = nextIndex
+            openBookForIsbn(bulkQueue[nextIndex])
+        }
+    }
+
+    LaunchedEffect(startInScanMode) {
+        if (startInScanMode) showScanner = true
+    }
+
+    BackHandler(enabled = settingsRoute != SettingsRoute.Main) {
+        settingsRoute = SettingsRoute.Main
+    }
+    BackHandler(enabled = settingsRoute == SettingsRoute.Main && fabExpanded) {
+        fabExpanded = false
+    }
 
     state.transient.errorRes?.let { errorRes ->
         val failedIsbn = state.transient.failedLookupIsbn
@@ -330,7 +383,12 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
                 .padding(padding),
             contentAlignment = Alignment.TopCenter,
         ) {
-            when (selectedTab) {
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = { fadeIn(tween(220, delayMillis = 90)) togetherWith fadeOut(tween(90)) },
+                label = "tabContent",
+            ) { tab ->
+            when (tab) {
                 HomeTab.Library -> LibraryScreen(
                     state = state,
                     onQueryChange = viewModel::setQuery,
@@ -341,8 +399,17 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
                     onOnLoanChange = viewModel::setOnLoanOnly,
                     onLocationChange = viewModel::setLocation,
                     onTagChange = viewModel::setTag,
+                    onClearFilters = viewModel::clearFilters,
                     onBookClick = { selectedBook = it },
                     onScanFirst = { showScanner = true },
+                    onSwipeAction = { item ->
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (item.isOnLoan) {
+                            item.activeLoan?.let { returnLoan = it }
+                        } else {
+                            loanBook = item.book
+                        }
+                    },
                 )
 
                 HomeTab.Shelves -> ShelvesScreen(
@@ -360,10 +427,7 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
 
                 HomeTab.Stats -> StatsScreen(
                     state = state,
-                    onExportJson = viewModel::exportJson,
-                    onExportCsv = viewModel::exportCsv,
-                    onImportJson = viewModel::importJson,
-                    onImportCsv = viewModel::importCsv,
+                    readingGoal = librarySettings.readingGoal,
                 )
 
                 HomeTab.Settings -> SettingsScreen(
@@ -376,7 +440,7 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
                     onOpenDataRecovery = { settingsRoute = SettingsRoute.DataRecovery },
                     onOpenPrivacyData = { settingsRoute = SettingsRoute.PrivacyData },
                     onOpenHelpAbout = { settingsRoute = SettingsRoute.HelpAbout },
-                    onCloseAppearance = { settingsRoute = SettingsRoute.Main },
+                    onBack = { settingsRoute = SettingsRoute.Main },
                     onThemeSelected = viewModel::setThemePreference,
                     onColorSourceSelected = viewModel::setColorSource,
                     onThemeColorIntensitySelected = viewModel::setThemeColorIntensity,
@@ -388,6 +452,7 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
                     onFabPlacementSelected = viewModel::setFabPlacement,
                     onDefaultGridModeChange = viewModel::setGridMode,
                     onDefaultSortChange = viewModel::setSort,
+                    onReadingGoalChange = viewModel::setReadingGoal,
                     onLoanRemindersEnabledChange = viewModel::setLoanRemindersEnabled,
                     onLoanReminderLeadDaysChange = viewModel::setLoanReminderLeadDays,
                     onBackupReminderDaysChange = viewModel::setBackupReminderDays,
@@ -399,24 +464,23 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
                     onImportCompleteBackup = viewModel::importCompleteBackup,
                 )
             }
+            }
         }
     }
 
     if (showScanner) {
         BarcodeScannerSheet(
             onBarcode = { isbn ->
-                val existingBook = state.allBooks.firstOrNull { it.matchesIsbn(isbn) }
-                if (existingBook != null) {
-                    editBook = existingBook.toListItem(state)
-                    enrichExistingBookId = existingBook.id
-                    selectedBook = null
-                    showAddBook = false
-                } else {
-                    scannedIsbn = isbn
-                    manualEntry = false
-                    showAddBook = true
-                }
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                openBookForIsbn(isbn)
                 showScanner = false
+            },
+            onBulkScanned = { isbns ->
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                bulkQueue = isbns
+                bulkIndex = 0
+                showScanner = false
+                openBookForIsbn(isbns.first())
             },
             onDismiss = { showScanner = false },
         )
@@ -431,6 +495,10 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
         )
     }
 
+    val authorSuggestions = remember(state.allBooks) { state.allBooks.flatMap { it.authors }.distinctSorted() }
+    val tagSuggestions = remember(state.allBooks) { state.allBooks.flatMap { it.tags }.distinctSorted() }
+    val bulkProgress = bulkQueue.takeIf { it.isNotEmpty() }?.let { bulkIndex + 1 to it.size }
+
     if (showAddBook) {
         AddBookSheet(
             manualEntry = manualEntry,
@@ -438,12 +506,14 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
             initialDraft = null,
             autoLookup = true,
             fillOnlyEmpty = false,
-            authorSuggestions = state.allBooks.flatMap { it.authors }.distinctSorted(),
-            tagSuggestions = state.allBooks.flatMap { it.tags }.distinctSorted(),
+            authorSuggestions = authorSuggestions,
+            tagSuggestions = tagSuggestions,
             lookupInProgress = state.transient.lookupInProgress,
-            onDismiss = { showAddBook = false },
+            bulkProgress = bulkProgress,
+            onDismiss = { showAddBook = false; advanceBulkQueue() },
+            onSkip = { showAddBook = false; advanceBulkQueue() },
             onLookup = viewModel::lookupIsbn,
-            onSave = { draft -> viewModel.addBook(draft) { showAddBook = false } },
+            onSave = { draft -> viewModel.addBook(draft) { showAddBook = false; advanceBulkQueue() } },
         )
     }
 
@@ -459,12 +529,19 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
             ),
             autoLookup = enrichFromScan,
             fillOnlyEmpty = true,
-            authorSuggestions = state.allBooks.flatMap { it.authors }.distinctSorted(),
-            tagSuggestions = state.allBooks.flatMap { it.tags }.distinctSorted(),
+            authorSuggestions = authorSuggestions,
+            tagSuggestions = tagSuggestions,
             lookupInProgress = state.transient.lookupInProgress,
+            bulkProgress = bulkProgress.takeIf { enrichFromScan },
             onDismiss = {
                 editBook = null
                 enrichExistingBookId = null
+                if (enrichFromScan) advanceBulkQueue()
+            },
+            onSkip = {
+                editBook = null
+                enrichExistingBookId = null
+                advanceBulkQueue()
             },
             onLookup = viewModel::lookupIsbn,
             onSave = { draft ->
@@ -472,6 +549,7 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
                     editBook = null
                     enrichExistingBookId = null
                     selectedBook = null
+                    if (enrichFromScan) advanceBulkQueue()
                 }
             },
         )
@@ -509,6 +587,7 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
             book = book,
             onDismiss = { deleteBook = null },
             onDelete = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 viewModel.deleteBook(book) {
                     deleteBook = null
                     selectedBook = null
@@ -573,6 +652,7 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
             location = item?.location,
             onDismiss = { returnLoan = null },
             onReturn = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 viewModel.markReturned(loan.id)
                 returnLoan = null
                 selectedBook = null
@@ -675,11 +755,12 @@ private fun LibraryScreen(
     onOnLoanChange: (Boolean) -> Unit,
     onLocationChange: (Long?) -> Unit,
     onTagChange: (String?) -> Unit,
+    onClearFilters: () -> Unit,
     onBookClick: (BookListItem) -> Unit,
     onScanFirst: () -> Unit,
+    onSwipeAction: (BookListItem) -> Unit = {},
 ) {
-    val context = LocalContext.current
-    val languageCount = state.allBooks.map { it.languageCode }.distinct().size
+    val languageCount = state.stats.languages.size
     ContentColumn {
         ScreenHeader(
             titleRes = R.string.screen_library,
@@ -727,7 +808,7 @@ private fun LibraryScreen(
                 title = stringResource(R.string.empty_search_title),
                 body = stringResource(R.string.empty_search_body),
                 cta = stringResource(R.string.empty_search_cta),
-                onCta = { onQueryChange("") },
+                onCta = onClearFilters,
             )
 
             state.filters.gridMode -> LazyVerticalGrid(
@@ -738,7 +819,7 @@ private fun LibraryScreen(
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 items(state.visibleBooks, key = { it.book.id }) { item ->
-                    BookGridCard(item = item, onClick = { onBookClick(item) })
+                    BookGridCard(item = item, modifier = Modifier.animateItem(), onClick = { onBookClick(item) })
                 }
             }
 
@@ -748,7 +829,12 @@ private fun LibraryScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(state.visibleBooks, key = { it.book.id }) { item ->
-                    BookListRow(item = item, onClick = { onBookClick(item) })
+                    BookListRow(
+                        item = item,
+                        modifier = Modifier.animateItem(),
+                        onClick = { onBookClick(item) },
+                        onSwipeAction = onSwipeAction,
+                    )
                 }
             }
         }
@@ -780,6 +866,7 @@ private fun SearchPill(query: String, onQueryChange: (String) -> Unit) {
                 placeholder = { Text(stringResource(R.string.search_hint)) },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color.Transparent,
                     unfocusedBorderColor = Color.Transparent,
@@ -787,7 +874,11 @@ private fun SearchPill(query: String, onQueryChange: (String) -> Unit) {
                     unfocusedContainerColor = Color.Transparent,
                 ),
             )
-            Icon(Icons.Outlined.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            AnimatedVisibility(visible = query.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
+                IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.action_clear), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
     }
 }
@@ -828,8 +919,8 @@ private fun FilterStrip(
     onTagChange: (String?) -> Unit,
 ) {
     val context = LocalContext.current
-    val tags = state.allBooks.flatMap { it.tags }.distinct().sortedBy { it.lowercase() }
-    val languages = state.allBooks.map { it.languageCode }.distinct().sorted()
+    val tags = remember(state.allBooks) { state.allBooks.flatMap { it.tags }.distinct().sortedBy { it.lowercase() } }
+    val languages = remember(state.allBooks) { state.allBooks.map { it.languageCode }.distinct().sorted() }
     var genreExpanded by remember { mutableStateOf(false) }
     var languageExpanded by remember { mutableStateOf(false) }
     var locationExpanded by remember { mutableStateOf(false) }
@@ -948,6 +1039,7 @@ private fun FilterStrip(
 
 @Composable
 private fun MorphChip(selected: Boolean, label: String, trailing: ImageVector? = null, onClick: () -> Unit) {
+    val cornerRadius by animateDpAsState(if (selected) 12.dp else 999.dp, label = "chipMorph")
     FilterChip(
         selected = selected,
         onClick = onClick,
@@ -960,15 +1052,15 @@ private fun MorphChip(selected: Boolean, label: String, trailing: ImageVector? =
         trailingIcon = trailing?.let {
             { Icon(it, contentDescription = null, modifier = Modifier.size(17.dp)) }
         },
-        shape = RoundedCornerShape(if (selected) 12.dp else 999.dp),
+        shape = RoundedCornerShape(cornerRadius),
     )
 }
 
 @Composable
-private fun BookGridCard(item: BookListItem, onClick: () -> Unit) {
+private fun BookGridCard(item: BookListItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val context = LocalContext.current
     Column(
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = modifier.clickable(onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box {
@@ -1006,53 +1098,94 @@ private fun BookGridCard(item: BookListItem, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BookListRow(item: BookListItem, onClick: () -> Unit) {
+private fun BookListRow(
+    item: BookListItem,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    onSwipeAction: ((BookListItem) -> Unit)? = null,
+) {
     val context = LocalContext.current
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-    ) {
-        Row(
-            modifier = Modifier.padding(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BookCover(
-                book = item.book,
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value != SwipeToDismissBoxValue.Settled) onSwipeAction?.invoke(item)
+            false
+        },
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        modifier = modifier,
+        enableDismissFromStartToEnd = onSwipeAction != null,
+        enableDismissFromEndToStart = false,
+        backgroundContent = {
+            Row(
                 modifier = Modifier
-                    .width(54.dp)
-                    .height(80.dp),
-                titleSize = 9,
-            )
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(
-                    text = item.book.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(if (item.isOnLoan) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer)
+                    .padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    if (item.isOnLoan) Icons.Outlined.AssignmentReturn else Icons.Outlined.Outbound,
+                    contentDescription = null,
+                    tint = if (item.isOnLoan) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
                 )
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    text = item.book.authors.displayAuthors(context),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = item.location.displayBreadcrumb(context),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    stringResource(if (item.isOnLoan) R.string.action_mark_returned else R.string.action_loan_book),
+                    color = if (item.isOnLoan) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = MaterialTheme.typography.labelLarge,
                 )
             }
-            StatusPill(item)
+        },
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 1.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BookCover(
+                    book = item.book,
+                    modifier = Modifier
+                        .width(54.dp)
+                        .height(80.dp),
+                    titleSize = 9,
+                )
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        text = item.book.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = item.book.authors.displayAuthors(context),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = item.location.displayBreadcrumb(context),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                StatusPill(item)
+            }
         }
     }
 }
@@ -1108,7 +1241,7 @@ private fun BookCover(
                     Text(
                         text = book.title,
                         color = palette.fg,
-                        fontFamily = if (book.languageCode == LanguageCode.Malayalam.code) FontFamily.Serif else FontFamily.Serif,
+                        fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = titleSize.sp,
                         lineHeight = (titleSize * 1.2f).sp,
@@ -1305,7 +1438,10 @@ private fun ShelfRow(
         Box(modifier = Modifier.height(74.dp).fillMaxWidth()) {
             HorizontalDivider(modifier = Modifier.align(Alignment.BottomCenter), color = MaterialTheme.colorScheme.outlineVariant, thickness = 2.dp)
             Row(
-                modifier = Modifier.align(Alignment.BottomStart),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
@@ -1359,6 +1495,10 @@ private fun LoansScreen(
 ) {
     val overdueCount = state.activeLoans.count { it.expectedReturnDateEpochMillis?.let { due -> due < System.currentTimeMillis() } == true }
     val borrowers = state.activeLoans.groupBy { it.borrowerName }
+    val bookById = remember(state.allBooks) { state.allBooks.associateBy { it.id } }
+    val itemByBookId = remember(state.allBooks, state.locations, state.activeLoans) {
+        state.allBooks.associate { it.id to it.toListItem(state) }
+    }
     ContentColumn {
         ScreenHeader(
             titleRes = R.string.screen_loans,
@@ -1400,8 +1540,8 @@ private fun LoansScreen(
                         BorrowerCard(
                             borrower = borrower,
                             loans = loans,
-                            books = state.allBooks,
-                            items = state.visibleBooks,
+                            bookById = bookById,
+                            itemByBookId = itemByBookId,
                             onReturn = onReturn,
                             onBookClick = onBookClick,
                         )
@@ -1439,11 +1579,13 @@ private fun OverdueBanner() {
 private fun BorrowerCard(
     borrower: String,
     loans: List<LoanEntity>,
-    books: List<BookEntity>,
-    items: List<BookListItem>,
+    bookById: Map<Long, BookEntity>,
+    itemByBookId: Map<Long, BookListItem>,
     onReturn: (LoanEntity) -> Unit,
     onBookClick: (BookListItem) -> Unit,
 ) {
+    val context = LocalContext.current
+    val borrowerContact = loans.firstNotNullOfOrNull { it.borrowerContact?.takeIf(String::isNotBlank) }
     ElevatedCard(shape = RoundedCornerShape(20.dp)) {
         Column(
             modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp)),
@@ -1458,18 +1600,29 @@ private fun BorrowerCard(
                     Text(borrower, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
                     Text(stringResource(R.string.loan_books_out, loans.size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Icon(Icons.Outlined.Call, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (borrowerContact != null) {
+                    IconButton(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$borrowerContact")))
+                            }
+                        },
+                    ) {
+                        Icon(Icons.Outlined.Call, contentDescription = stringResource(R.string.action_call_borrower), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
             loans.forEachIndexed { index, loan ->
                 if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                val book = books.firstOrNull { it.id == loan.bookId } ?: return@forEachIndexed
-                val item = items.firstOrNull { it.book.id == book.id } ?: BookListItem(book, null, loan)
+                val book = bookById[loan.bookId] ?: return@forEachIndexed
+                val item = itemByBookId[book.id] ?: BookListItem(book, null, loan)
                 LoanBookRow(item = item, loan = loan, onReturn = onReturn, onBookClick = onBookClick)
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LoanBookRow(
     item: BookListItem,
@@ -1478,21 +1631,48 @@ private fun LoanBookRow(
     onBookClick: (BookListItem) -> Unit,
 ) {
     val context = LocalContext.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onBookClick(item) }
-            .padding(14.dp),
-        horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_md)),
-        verticalAlignment = Alignment.CenterVertically,
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value != SwipeToDismissBoxValue.Settled) onReturn(loan)
+            false
+        },
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = true,
+        enableDismissFromEndToStart = false,
+        backgroundContent = {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.AssignmentReturn, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.action_mark_returned), color = MaterialTheme.colorScheme.onSecondaryContainer, style = MaterialTheme.typography.labelLarge)
+            }
+        },
     ) {
-        BookCover(item.book, Modifier.width(38.dp).height(56.dp), titleSize = 8)
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(item.book.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            DueChip(item = item, dueText = loan.expectedReturnDateEpochMillis.displayDate(context))
-        }
-        OutlinedButton(onClick = { onReturn(loan) }, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
-            Text(stringResource(R.string.action_return))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface)
+                .clickable { onBookClick(item) }
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_md)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BookCover(item.book, Modifier.width(38.dp).height(56.dp), titleSize = 8)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(item.book.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                DueChip(item = item, dueText = loan.expectedReturnDateEpochMillis.displayDate(context))
+            }
+            OutlinedButton(onClick = { onReturn(loan) }, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
+                Text(stringResource(R.string.action_return))
+            }
         }
     }
 }
@@ -1517,21 +1697,11 @@ private fun DueChip(item: BookListItem, dueText: String) {
 @Composable
 private fun StatsScreen(
     state: HomeLibraryUiState,
-    onExportJson: (Uri) -> Unit,
-    onExportCsv: (Uri) -> Unit,
-    onImportJson: (Uri) -> Unit,
-    onImportCsv: (Uri) -> Unit,
+    readingGoal: Int,
 ) {
-    val jsonFilename = stringResource(R.string.backup_json_filename)
-    val csvFilename = stringResource(R.string.backup_csv_filename)
-    val jsonExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if (uri != null) onExportJson(uri) }
-    val csvExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri -> if (uri != null) onExportCsv(uri) }
-    val jsonImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) onImportJson(uri) }
-    val csvImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) onImportCsv(uri) }
     val readThisYear = state.stats.readThisYear
     val reading = state.allBooks.count { it.readStatusCode == ReadStatusCode.Reading.code }
     val unread = state.allBooks.count { it.readStatusCode == ReadStatusCode.Unread.code }
-    val goal = 24
 
     ContentColumn {
         ScreenHeader(titleRes = R.string.screen_stats, meta = stringResource(R.string.stats_meta))
@@ -1554,16 +1724,8 @@ private fun StatsScreen(
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_md))) {
                     GenreBarsCard(state.stats.genres, Modifier.weight(1.35f))
-                    ReadingRingCard(readThisYear, goal, Modifier.weight(1f))
+                    ReadingRingCard(readThisYear, readingGoal, Modifier.weight(1f))
                 }
-            }
-            item {
-                BackupCard(
-                    onExportJson = { jsonExporter.launch(jsonFilename) },
-                    onExportCsv = { csvExporter.launch(csvFilename) },
-                    onImportJson = { jsonImporter.launch(arrayOf("application/json", "text/*")) },
-                    onImportCsv = { csvImporter.launch(arrayOf("text/csv", "text/*")) },
-                )
             }
             item {
                 MostBorrowedCard(state.stats.mostBorrowed)
@@ -1609,6 +1771,9 @@ private fun StatTile(@StringRes label: Int, value: Int, color: Color, modifier: 
 private fun LanguageBarCard(languages: Map<String, Int>) {
     ChartCard(title = R.string.stats_languages) {
         val total = languages.values.sum().coerceAtLeast(1)
+        var animateIn by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { animateIn = true }
+        val growth by animateFloatAsState(if (animateIn) 1f else 0f, animationSpec = tween(700), label = "languageBarGrowth")
         Row(
             modifier = Modifier.fillMaxWidth().height(16.dp).clip(RoundedCornerShape(8.dp)),
             horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -1618,6 +1783,7 @@ private fun LanguageBarCard(languages: Map<String, Int>) {
                     modifier = Modifier
                         .weight(entry.value / total.toFloat())
                         .fillMaxHeight()
+                        .scale(scaleX = growth, scaleY = 1f)
                         .background(chartColor(index)),
                 )
             }
@@ -1640,17 +1806,25 @@ private fun GenreBarsCard(genres: Map<String, Int>, modifier: Modifier = Modifie
     ChartCard(title = R.string.stats_genres, modifier = modifier) {
         val entries = genres.entries.sortedByDescending { it.value }.take(4)
         val maxValue = entries.maxOfOrNull { it.value }?.coerceAtLeast(1) ?: 1
+        var animateIn by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { animateIn = true }
         Row(
             modifier = Modifier.fillMaxWidth().height(126.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
             entries.ifEmpty { listOf(mapOf(stringResource(R.string.not_available) to 1).entries.first()) }.forEachIndexed { index, entry ->
+                val targetHeight = (96 * entry.value / maxValue).dp.coerceAtLeast(18.dp)
+                val animatedHeight by animateDpAsState(
+                    if (animateIn) targetHeight else 0.dp,
+                    animationSpec = tween(600, delayMillis = index * 60),
+                    label = "genreBarHeight",
+                )
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Bottom) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height((96 * entry.value / maxValue).dp.coerceAtLeast(18.dp))
+                            .height(animatedHeight)
                             .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 4.dp, bottomEnd = 4.dp))
                             .background(chartColor(index)),
                     )
@@ -1665,6 +1839,9 @@ private fun GenreBarsCard(genres: Map<String, Int>, modifier: Modifier = Modifie
 private fun ReadingRingCard(read: Int, goal: Int, modifier: Modifier = Modifier) {
     ChartCard(title = R.string.stats_read_this_year, modifier = modifier, titleArg = Year.now().value) {
         val progress = (read / goal.toFloat()).coerceIn(0f, 1f)
+        var animateIn by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { animateIn = true }
+        val animatedProgress by animateFloatAsState(if (animateIn) progress else 0f, animationSpec = tween(800), label = "readingRingProgress")
         val trackColor = MaterialTheme.colorScheme.surfaceVariant
         val progressColor = MaterialTheme.colorScheme.primary
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -1679,7 +1856,7 @@ private fun ReadingRingCard(read: Int, goal: Int, modifier: Modifier = Modifier)
                 drawArc(
                     color = progressColor,
                     startAngle = -90f,
-                    sweepAngle = 360f * progress,
+                    sweepAngle = 360f * animatedProgress,
                     useCenter = false,
                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = 14.dp.toPx()),
                 )
@@ -1734,18 +1911,6 @@ private fun ChartCard(
 }
 
 @Composable
-private fun BackupCard(onExportJson: () -> Unit, onExportCsv: () -> Unit, onImportJson: () -> Unit, onImportCsv: () -> Unit) {
-    ChartCard(title = R.string.section_backup_restore) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onExportJson) { Text(stringResource(R.string.action_export_json)) }
-            OutlinedButton(onClick = onExportCsv) { Text(stringResource(R.string.action_export_csv)) }
-            OutlinedButton(onClick = onImportJson) { Text(stringResource(R.string.action_import_json)) }
-            OutlinedButton(onClick = onImportCsv) { Text(stringResource(R.string.action_import_csv)) }
-        }
-    }
-}
-
-@Composable
 private fun SettingsScreen(
     state: HomeLibraryUiState,
     route: SettingsRoute,
@@ -1756,7 +1921,7 @@ private fun SettingsScreen(
     onOpenDataRecovery: () -> Unit,
     onOpenPrivacyData: () -> Unit,
     onOpenHelpAbout: () -> Unit,
-    onCloseAppearance: () -> Unit,
+    onBack: () -> Unit,
     onThemeSelected: (ThemePreference) -> Unit,
     onColorSourceSelected: (ColorSource) -> Unit,
     onThemeColorIntensitySelected: (ThemeColorIntensity) -> Unit,
@@ -1768,6 +1933,7 @@ private fun SettingsScreen(
     onFabPlacementSelected: (FabPlacement) -> Unit,
     onDefaultGridModeChange: (Boolean) -> Unit,
     onDefaultSortChange: (BookSortCode) -> Unit,
+    onReadingGoalChange: (Int) -> Unit,
     onLoanRemindersEnabledChange: (Boolean) -> Unit,
     onLoanReminderLeadDaysChange: (Int) -> Unit,
     onBackupReminderDaysChange: (Int) -> Unit,
@@ -1778,11 +1944,95 @@ private fun SettingsScreen(
     onExportCompleteBackup: (Uri) -> Unit,
     onImportCompleteBackup: (Uri) -> Unit,
 ) {
-    when (route) {
+    AnimatedContent(
+        targetState = route,
+        transitionSpec = {
+            if (targetState != SettingsRoute.Main) {
+                (slideInHorizontally(tween(260)) { it / 3 } + fadeIn()) togetherWith
+                    (slideOutHorizontally(tween(260)) { -it / 3 } + fadeOut())
+            } else {
+                (slideInHorizontally(tween(260)) { -it / 3 } + fadeIn()) togetherWith
+                    (slideOutHorizontally(tween(260)) { it / 3 } + fadeOut())
+            }
+        },
+        label = "settingsRoute",
+    ) { currentRoute ->
+        SettingsRouteContent(
+            currentRoute = currentRoute,
+            state = state,
+            appearanceSettings = appearanceSettings,
+            librarySettings = librarySettings,
+            onOpenAppearance = onOpenAppearance,
+            onOpenLibraryPreferences = onOpenLibraryPreferences,
+            onOpenDataRecovery = onOpenDataRecovery,
+            onOpenPrivacyData = onOpenPrivacyData,
+            onOpenHelpAbout = onOpenHelpAbout,
+            onBack = onBack,
+            onThemeSelected = onThemeSelected,
+            onColorSourceSelected = onColorSourceSelected,
+            onThemeColorIntensitySelected = onThemeColorIntensitySelected,
+            onBackgroundTintLevelSelected = onBackgroundTintLevelSelected,
+            onFontFamilySelected = onFontFamilySelected,
+            onFontScaleSelected = onFontScaleSelected,
+            onContentFontScaleSelected = onContentFontScaleSelected,
+            onFollowUiFontScaleChanged = onFollowUiFontScaleChanged,
+            onFabPlacementSelected = onFabPlacementSelected,
+            onDefaultGridModeChange = onDefaultGridModeChange,
+            onDefaultSortChange = onDefaultSortChange,
+            onReadingGoalChange = onReadingGoalChange,
+            onLoanRemindersEnabledChange = onLoanRemindersEnabledChange,
+            onLoanReminderLeadDaysChange = onLoanReminderLeadDaysChange,
+            onBackupReminderDaysChange = onBackupReminderDaysChange,
+            onExportJson = onExportJson,
+            onExportCsv = onExportCsv,
+            onImportJson = onImportJson,
+            onImportCsv = onImportCsv,
+            onExportCompleteBackup = onExportCompleteBackup,
+            onImportCompleteBackup = onImportCompleteBackup,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsRouteContent(
+    currentRoute: SettingsRoute,
+    state: HomeLibraryUiState,
+    appearanceSettings: AppearanceSettings,
+    librarySettings: LibrarySettings,
+    onOpenAppearance: () -> Unit,
+    onOpenLibraryPreferences: () -> Unit,
+    onOpenDataRecovery: () -> Unit,
+    onOpenPrivacyData: () -> Unit,
+    onOpenHelpAbout: () -> Unit,
+    onBack: () -> Unit,
+    onThemeSelected: (ThemePreference) -> Unit,
+    onColorSourceSelected: (ColorSource) -> Unit,
+    onThemeColorIntensitySelected: (ThemeColorIntensity) -> Unit,
+    onBackgroundTintLevelSelected: (BackgroundTintLevel) -> Unit,
+    onFontFamilySelected: (AppFontFamily) -> Unit,
+    onFontScaleSelected: (FontScalePreference) -> Unit,
+    onContentFontScaleSelected: (FontScalePreference) -> Unit,
+    onFollowUiFontScaleChanged: (Boolean) -> Unit,
+    onFabPlacementSelected: (FabPlacement) -> Unit,
+    onDefaultGridModeChange: (Boolean) -> Unit,
+    onDefaultSortChange: (BookSortCode) -> Unit,
+    onReadingGoalChange: (Int) -> Unit,
+    onLoanRemindersEnabledChange: (Boolean) -> Unit,
+    onLoanReminderLeadDaysChange: (Int) -> Unit,
+    onBackupReminderDaysChange: (Int) -> Unit,
+    onExportJson: (Uri) -> Unit,
+    onExportCsv: (Uri) -> Unit,
+    onImportJson: (Uri) -> Unit,
+    onImportCsv: (Uri) -> Unit,
+    onExportCompleteBackup: (Uri) -> Unit,
+    onImportCompleteBackup: (Uri) -> Unit,
+) {
+    when (currentRoute) {
         SettingsRoute.Appearance -> {
             AppearanceSettingsScreen(
                 settings = appearanceSettings,
-                onBack = onCloseAppearance,
+                onBack = onBack,
                 onThemeSelected = onThemeSelected,
                 onColorSourceSelected = onColorSourceSelected,
                 onThemeColorIntensitySelected = onThemeColorIntensitySelected,
@@ -1798,16 +2048,17 @@ private fun SettingsScreen(
         SettingsRoute.LibraryPreferences -> {
             LibraryPreferencesScreen(
                 settings = librarySettings,
-                onBack = onCloseAppearance,
+                onBack = onBack,
                 onDefaultGridModeChange = onDefaultGridModeChange,
                 onDefaultSortChange = onDefaultSortChange,
+                onReadingGoalChange = onReadingGoalChange,
             )
             return
         }
         SettingsRoute.DataRecovery -> {
             DataRecoverySettingsScreen(
                 settings = librarySettings,
-                onBack = onCloseAppearance,
+                onBack = onBack,
                 onExportJson = onExportJson,
                 onExportCsv = onExportCsv,
                 onImportJson = onImportJson,
@@ -1821,11 +2072,11 @@ private fun SettingsScreen(
             return
         }
         SettingsRoute.PrivacyData -> {
-            LocalDataPrivacyScreen(onBack = onCloseAppearance)
+            LocalDataPrivacyScreen(onBack = onBack)
             return
         }
         SettingsRoute.HelpAbout -> {
-            HelpAboutScreen(onBack = onCloseAppearance)
+            HelpAboutScreen(onBack = onBack)
             return
         }
         SettingsRoute.Main -> Unit
@@ -2040,8 +2291,12 @@ private fun GranthapuraFabMenu(
             exit = fadeOut() + scaleOut(),
         ) {
             Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                FabMenuItem(icon = Icons.Outlined.QrCodeScanner, label = stringResource(R.string.action_scan_isbn), placement = placement, onClick = onScan)
-                FabMenuItem(icon = Icons.Outlined.EditNote, label = stringResource(R.string.action_add_manually), placement = placement, onClick = onManual)
+                StaggeredFabMenuItem(index = 0, expanded = expanded) {
+                    FabMenuItem(icon = Icons.Outlined.QrCodeScanner, label = stringResource(R.string.action_scan_isbn), placement = placement, onClick = onScan)
+                }
+                StaggeredFabMenuItem(index = 1, expanded = expanded) {
+                    FabMenuItem(icon = Icons.Outlined.EditNote, label = stringResource(R.string.action_add_manually), placement = placement, onClick = onManual)
+                }
             }
         }
         FloatingActionButton(
@@ -2068,6 +2323,26 @@ private fun ScreenFab(icon: ImageVector, label: String, onClick: () -> Unit) {
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {
         Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
+    }
+}
+
+@Composable
+private fun StaggeredFabMenuItem(index: Int, expanded: Boolean, content: @Composable () -> Unit) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(expanded) {
+        visible = if (expanded) {
+            kotlinx.coroutines.delay(index * 45L)
+            true
+        } else {
+            false
+        }
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = 0.7f),
+        exit = fadeOut(tween(90)),
+    ) {
+        content()
     }
 }
 
@@ -2146,7 +2421,9 @@ private fun AddBookSheet(
     authorSuggestions: List<String>,
     tagSuggestions: List<String>,
     lookupInProgress: Boolean,
+    bulkProgress: Pair<Int, Int>? = null,
     onDismiss: () -> Unit,
+    onSkip: () -> Unit = onDismiss,
     onLookup: (String, (com.mj.homelibrary.data.remote.BookMetadata?) -> Unit) -> Unit,
     onSave: (BookDraft) -> Unit,
 ) {
@@ -2220,6 +2497,26 @@ private fun AddBookSheet(
                 }
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.content_description_close))
+                }
+            }
+            if (bulkProgress != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        stringResource(R.string.bulk_review_body, bulkProgress.first, bulkProgress.second),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                    TextButton(onClick = onSkip) {
+                        Text(stringResource(R.string.action_skip))
+                    }
                 }
             }
             if (lookupInProgress) {
@@ -2344,12 +2641,15 @@ private fun CoverEditor(
         color = MaterialTheme.colorScheme.surface,
         modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)),
     ) {
+        val previewEntity = remember(draft.id, draft.title, draft.authors, draft.languageCode, draft.coverImagePath, draft.coverUrl, draft.formatCode) {
+            draft.toEntity()
+        }
         Row(
             modifier = Modifier.padding(14.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BookCover(draft.toEntity(), modifier = Modifier.width(64.dp).height(96.dp), titleSize = 8)
+            BookCover(previewEntity, modifier = Modifier.width(64.dp).height(96.dp), titleSize = 8)
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.section_cover), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextFieldLine(
@@ -2455,13 +2755,16 @@ private fun saveCroppedCover(context: Context, uri: Uri): String? =
 
 @Composable
 private fun MetadataLoadedCard(draft: BookDraft) {
+    val previewEntity = remember(draft.id, draft.title, draft.authors, draft.languageCode, draft.coverImagePath, draft.coverUrl, draft.formatCode) {
+        draft.toEntity()
+    }
     Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
         Row(
             modifier = Modifier.padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BookCover(draft.toEntity(), modifier = Modifier.width(52.dp).height(78.dp), titleSize = 8)
+            BookCover(previewEntity, modifier = Modifier.width(52.dp).height(78.dp), titleSize = 8)
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Outlined.CloudDone, contentDescription = null, modifier = Modifier.size(14.dp))

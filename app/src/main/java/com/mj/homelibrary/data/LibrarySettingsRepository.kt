@@ -12,6 +12,7 @@ data class LibrarySettings(
     val loanReminderLeadDays: Int = 0,
     val backupReminderDays: Int = 30,
     val lastCompleteBackupEpochMillis: Long? = null,
+    val readingGoal: Int = 24,
 )
 
 class LibrarySettingsRepository(context: Context) {
@@ -50,6 +51,11 @@ class LibrarySettingsRepository(context: Context) {
         refresh()
     }
 
+    fun setReadingGoal(goal: Int) {
+        prefs.edit().putInt(KEY_READING_GOAL, goal.coerceIn(1, 365)).apply()
+        refresh()
+    }
+
     private fun refresh() {
         _settings.value = readSettings()
     }
@@ -64,6 +70,7 @@ class LibrarySettingsRepository(context: Context) {
             lastCompleteBackupEpochMillis = prefs.takeIf { it.contains(KEY_LAST_COMPLETE_BACKUP) }
                 ?.getLong(KEY_LAST_COMPLETE_BACKUP, 0L)
                 ?.takeIf { it > 0L },
+            readingGoal = prefs.getInt(KEY_READING_GOAL, 24).coerceIn(1, 365),
         )
 
     private inline fun <reified T : Enum<T>> readEnum(key: String, fallback: T): T =
@@ -79,5 +86,6 @@ class LibrarySettingsRepository(context: Context) {
         const val KEY_LOAN_REMINDER_LEAD_DAYS = "loan_reminder_lead_days"
         const val KEY_BACKUP_REMINDER_DAYS = "backup_reminder_days"
         const val KEY_LAST_COMPLETE_BACKUP = "last_complete_backup"
+        const val KEY_READING_GOAL = "reading_goal"
     }
 }

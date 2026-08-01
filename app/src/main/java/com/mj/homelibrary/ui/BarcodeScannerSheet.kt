@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -47,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -98,6 +100,7 @@ private fun scannerThemeColors(): ScannerThemeColors {
 fun BarcodeScannerSheet(
     onBarcode: (String) -> Unit,
     onDismiss: () -> Unit,
+    onBulkScanned: (List<String>) -> Unit = { it.firstOrNull()?.let(onBarcode) },
 ) {
     val context = LocalContext.current
     var granted by remember {
@@ -106,6 +109,8 @@ fun BarcodeScannerSheet(
         )
     }
     var bulkScan by remember { mutableStateOf(true) }
+    var torchOn by remember { mutableStateOf(false) }
+    val scannedQueue = remember { mutableStateListOf<String>() }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         granted = isGranted
     }
@@ -133,11 +138,25 @@ fun BarcodeScannerSheet(
                 ) {
                     ScannerCircleButton(icon = Icons.Outlined.Close, onClick = onDismiss, contentDescription = stringResource(R.string.content_description_close))
                     Text(stringResource(R.string.action_scan_isbn), style = MaterialTheme.typography.titleMedium)
-                    ScannerCircleButton(icon = Icons.Outlined.FlashlightOn, onClick = {}, contentDescription = null)
+                    ScannerCircleButton(
+                        icon = Icons.Outlined.FlashlightOn,
+                        onClick = { torchOn = !torchOn },
+                        contentDescription = stringResource(R.string.action_toggle_flashlight),
+                        active = torchOn,
+                    )
                 }
 
                 if (granted) {
-                    ScannerViewfinder(onBarcode = onBarcode)
+                    ScannerViewfinder(
+                        torchOn = torchOn,
+                        onBarcode = { isbn ->
+                            if (bulkScan) {
+                                if (isbn !in scannedQueue) scannedQueue.add(isbn)
+                            } else {
+                                onBarcode(isbn)
+                            }
+                        },
+                    )
                 } else {
                     PermissionPanel(onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) })
                 }
@@ -161,18 +180,22 @@ fun BarcodeScannerSheet(
                     Switch(checked = bulkScan, onCheckedChange = { bulkScan = it })
                     Text(stringResource(R.string.bulk_scan), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                     Text(
-                        stringResource(R.string.bulk_scan_count, 0),
+                        stringResource(R.string.bulk_scan_count, scannedQueue.size),
                         color = scannerColors.onBackground.copy(alpha = 0.72f),
                         style = MaterialTheme.typography.labelMedium,
                     )
                 }
                 Spacer(Modifier.weight(1f))
                 Button(
-                    onClick = onDismiss,
+                    onClick = {
+                        if (bulkScan && scannedQueue.isNotEmpty()) onBulkScanned(scannedQueue.toList()) else onDismiss()
+                    },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(18.dp),
                 ) {
-                    Text(stringResource(R.string.review_books, 0))
+                    Text(
+                        if (bulkScan) stringResource(R.string.review_books, scannedQueue.size) else stringResource(R.string.action_cancel),
+                    )
                 }
             }
         }
@@ -184,13 +207,14 @@ private fun ScannerCircleButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
     contentDescription: String?,
+    active: Boolean = false,
 ) {
     IconButton(
         onClick = onClick,
         modifier = Modifier.size(44.dp),
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            contentColor = MaterialTheme.colorScheme.onSurface,
+            containerColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         ),
     ) {
         Icon(icon, contentDescription = contentDescription)
@@ -217,7 +241,7 @@ private fun PermissionPanel(onGrant: () -> Unit) {
 }
 
 @Composable
-private fun ScannerViewfinder(onBarcode: (String) -> Unit) {
+private fun ScannerViewfinder(torchOn: Boolean, onBarcode: (String) -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -234,7 +258,7 @@ private fun ScannerViewfinder(onBarcode: (String) -> Unit) {
             ),
         contentAlignment = Alignment.Center,
     ) {
-        CameraBarcodePreview(onBarcode)
+        CameraBarcodePreview(torchOn = torchOn, onBarcode = onBarcode)
         ScannerReticle(modifier = Modifier.fillMaxSize().padding(26.dp))
     }
 }
@@ -273,15 +297,25 @@ private fun ScannerReticle(modifier: Modifier = Modifier) {
     }
 }
 
+private const val RescanCooldownMillis = 1500L
+
 @Composable
-private fun CameraBarcodePreview(onBarcode: (String) -> Unit) {
+private fun CameraBarcodePreview(torchOn: Boolean, onBarcode: (String) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var handled by remember { mutableStateOf(false) }
+    var lastCode by remember { mutableStateOf<String?>(null) }
+    var lastHandledAt by remember { mutableStateOf(0L) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
     val scanner = remember { BarcodeScanning.getClient() }
 
     DisposableEffect(Unit) {
         onDispose { scanner.close() }
+    }
+
+    LaunchedEffect(torchOn, camera) {
+        if (camera?.cameraInfo?.hasFlashUnit() == true) {
+            camera?.cameraControl?.enableTorch(torchOn)
+        }
     }
 
     AndroidView(
@@ -304,15 +338,22 @@ private fun CameraBarcodePreview(onBarcode: (String) -> Unit) {
                                     processBarcodeImage(
                                         imageProxy = imageProxy,
                                         scanner = scanner,
-                                        handled = handled,
-                                        onHandled = { handled = true },
+                                        canHandle = { code ->
+                                            val now = System.currentTimeMillis()
+                                            val allowed = code != lastCode || now - lastHandledAt > RescanCooldownMillis
+                                            if (allowed) {
+                                                lastCode = code
+                                                lastHandledAt = now
+                                            }
+                                            allowed
+                                        },
                                         onBarcode = onBarcode,
                                     )
                                 }
                             }
 
                         provider.unbindAll()
-                        provider.bindToLifecycle(
+                        camera = provider.bindToLifecycle(
                             lifecycleOwner,
                             CameraSelector.DEFAULT_BACK_CAMERA,
                             preview,
@@ -330,12 +371,11 @@ private fun CameraBarcodePreview(onBarcode: (String) -> Unit) {
 private fun processBarcodeImage(
     imageProxy: ImageProxy,
     scanner: com.google.mlkit.vision.barcode.BarcodeScanner,
-    handled: Boolean,
-    onHandled: () -> Unit,
+    canHandle: (String) -> Boolean,
     onBarcode: (String) -> Unit,
 ) {
     val mediaImage = imageProxy.image
-    if (mediaImage == null || handled) {
+    if (mediaImage == null) {
         imageProxy.close()
         return
     }
@@ -343,8 +383,7 @@ private fun processBarcodeImage(
     scanner.process(image)
         .addOnSuccessListener { barcodes ->
             val rawValue = barcodes.firstOrNull()?.rawValue?.validIsbnOrNull()
-            if (rawValue != null) {
-                onHandled()
+            if (rawValue != null && canHandle(rawValue)) {
                 onBarcode(rawValue)
             }
         }
