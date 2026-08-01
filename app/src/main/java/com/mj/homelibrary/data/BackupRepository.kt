@@ -150,6 +150,9 @@ class BackupRepository(
         .put("locationId", locationId)
         .put("positionNote", positionNote)
         .put("addedDateEpochMillis", addedDateEpochMillis)
+        .put("purchaseDateEpochMillis", purchaseDateEpochMillis)
+        .put("cost", cost)
+        .put("seriesName", seriesName)
 
     private fun LocationEntity.toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -231,6 +234,9 @@ class BackupRepository(
                 locationId = json.optNullableLong("locationId"),
                 positionNote = json.optNullableString("positionNote"),
                 addedDateEpochMillis = json.optLong("addedDateEpochMillis", System.currentTimeMillis()),
+                purchaseDateEpochMillis = json.optNullableLong("purchaseDateEpochMillis"),
+                cost = json.optNullableDouble("cost"),
+                seriesName = json.optNullableString("seriesName"),
             )
         }
     }

@@ -64,7 +64,7 @@ class HomeLibraryRepository(
     }
 
     suspend fun moveBook(bookId: Long, room: String, unit: String, shelf: String, positionNote: String?) {
-        val book = bookDao.getAll().firstOrNull { it.id == bookId } ?: return
+        val book = bookDao.get(bookId) ?: return
         val locationId = locationDao.getOrCreate(room, unit, shelf)
         bookDao.update(book.copy(locationId = locationId, positionNote = positionNote?.trim()?.takeIf(String::isNotBlank)))
     }
@@ -75,7 +75,7 @@ class HomeLibraryRepository(
     }
 
     suspend fun updateBookRating(bookId: Long, rating: Float) {
-        val book = bookDao.getAll().firstOrNull { it.id == bookId } ?: return
+        val book = bookDao.get(bookId) ?: return
         bookDao.update(book.copy(rating = rating.takeIf { it > 0f }))
     }
 

@@ -17,6 +17,9 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE id = :id")
     fun observeBook(id: Long): Flow<BookEntity?>
 
+    @Query("SELECT * FROM books WHERE id = :id")
+    suspend fun get(id: Long): BookEntity?
+
     @Query("SELECT * FROM books WHERE isbn10 = :isbn OR isbn13 = :isbn LIMIT 1")
     suspend fun findByIsbn(isbn: String): BookEntity?
 
