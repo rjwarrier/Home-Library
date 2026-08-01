@@ -521,6 +521,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             fillOnlyEmpty = false,
             authorSuggestions = authorSuggestions,
             tagSuggestions = tagSuggestions,
+            locations = state.locations,
             lookupInProgress = state.transient.lookupInProgress,
             bulkProgress = bulkProgress,
             onDismiss = { showAddBook = false; advanceBulkQueue() },
@@ -544,6 +545,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             fillOnlyEmpty = true,
             authorSuggestions = authorSuggestions,
             tagSuggestions = tagSuggestions,
+            locations = state.locations,
             lookupInProgress = state.transient.lookupInProgress,
             bulkProgress = bulkProgress.takeIf { enrichFromScan },
             onDismiss = {
@@ -585,6 +587,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     moveBook?.let { item ->
         MoveBookSheet(
             item = item,
+            locations = state.locations,
             onDismiss = { moveBook = null },
             onSave = { room, unit, shelf, positionNote ->
                 viewModel.moveBook(item.book.id, room, unit, shelf, positionNote) {
@@ -2497,6 +2500,7 @@ private fun AddBookSheet(
     fillOnlyEmpty: Boolean,
     authorSuggestions: List<String>,
     tagSuggestions: List<String>,
+    locations: List<LocationEntity>,
     lookupInProgress: Boolean,
     bulkProgress: Pair<Int, Int>? = null,
     onDismiss: () -> Unit,
@@ -2685,7 +2689,7 @@ private fun AddBookSheet(
                     modifier = Modifier.weight(1f),
                 )
             }
-            ShelfLocationField(draft = draft, onDraftChange = { draft = it })
+            ShelfLocationField(draft = draft, locations = locations, onDraftChange = { draft = it })
             Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
@@ -2955,7 +2959,7 @@ private fun SynopsisField(value: String, onValueChange: (String) -> Unit) {
 }
 
 @Composable
-private fun ShelfLocationField(draft: BookDraft, onDraftChange: (BookDraft) -> Unit) {
+private fun ShelfLocationField(draft: BookDraft, locations: List<LocationEntity>, onDraftChange: (BookDraft) -> Unit) {
     ElevatedCard(shape = RoundedCornerShape(20.dp)) {
         Column(
             modifier = Modifier
@@ -2970,14 +2974,61 @@ private fun ShelfLocationField(draft: BookDraft, onDraftChange: (BookDraft) -> U
                     Text(stringResource(R.string.location_section_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextFieldLine(draft.room, { onDraftChange(draft.copy(room = it)) }, R.string.field_room, Modifier.weight(1f))
-                TextFieldLine(draft.unit, { onDraftChange(draft.copy(unit = it)) }, R.string.field_unit, Modifier.weight(1f))
-            }
-            TextFieldLine(draft.shelf, { onDraftChange(draft.copy(shelf = it)) }, R.string.field_shelf)
+            LocationDropdownFields(
+                room = draft.room,
+                unit = draft.unit,
+                shelf = draft.shelf,
+                locations = locations,
+                onRoomChange = { onDraftChange(draft.copy(room = it)) },
+                onUnitChange = { onDraftChange(draft.copy(unit = it)) },
+                onShelfChange = { onDraftChange(draft.copy(shelf = it)) },
+            )
             TextFieldLine(draft.positionNote, { onDraftChange(draft.copy(positionNote = it)) }, R.string.field_position_note)
         }
     }
+}
+
+@Composable
+private fun LocationDropdownFields(
+    room: String,
+    unit: String,
+    shelf: String,
+    locations: List<LocationEntity>,
+    onRoomChange: (String) -> Unit,
+    onUnitChange: (String) -> Unit,
+    onShelfChange: (String) -> Unit,
+) {
+    val roomSuggestions = remember(locations) { locations.map { it.room }.distinctSorted() }
+    val unitSuggestions = remember(locations, room) {
+        locations.filter { it.room.equals(room, ignoreCase = true) }.map { it.unit }.distinctSorted()
+    }
+    val shelfSuggestions = remember(locations, room, unit) {
+        locations.filter { it.room.equals(room, ignoreCase = true) && it.unit.equals(unit, ignoreCase = true) }
+            .map { it.shelf }
+            .distinctSorted()
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SuggestedTextFieldLine(
+            value = room,
+            onValueChange = onRoomChange,
+            suggestions = roomSuggestions,
+            label = R.string.field_room,
+            modifier = Modifier.weight(1f),
+        )
+        SuggestedTextFieldLine(
+            value = unit,
+            onValueChange = onUnitChange,
+            suggestions = unitSuggestions,
+            label = R.string.field_unit,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    SuggestedTextFieldLine(
+        value = shelf,
+        onValueChange = onShelfChange,
+        suggestions = shelfSuggestions,
+        label = R.string.field_shelf,
+    )
 }
 
 @Composable
@@ -3311,6 +3362,7 @@ private fun LoanBookSheet(book: BookEntity, onDismiss: () -> Unit, onSave: (Loan
 @Composable
 private fun MoveBookSheet(
     item: BookListItem,
+    locations: List<LocationEntity>,
     onDismiss: () -> Unit,
     onSave: (String, String, String, String?) -> Unit,
 ) {
@@ -3329,9 +3381,15 @@ private fun MoveBookSheet(
         ) {
             Text(stringResource(R.string.move_book_title), style = MaterialTheme.typography.headlineSmall)
             Text(item.book.title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextFieldLine(room, { room = it }, R.string.field_room)
-            TextFieldLine(unit, { unit = it }, R.string.field_unit)
-            TextFieldLine(shelf, { shelf = it }, R.string.field_shelf)
+            LocationDropdownFields(
+                room = room,
+                unit = unit,
+                shelf = shelf,
+                locations = locations,
+                onRoomChange = { room = it },
+                onUnitChange = { unit = it },
+                onShelfChange = { shelf = it },
+            )
             TextFieldLine(positionNote, { positionNote = it }, R.string.field_position_note)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
