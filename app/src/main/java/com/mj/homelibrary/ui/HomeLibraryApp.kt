@@ -2979,8 +2979,8 @@ private fun ShelfLocationField(draft: BookDraft, locations: List<LocationEntity>
                 unit = draft.unit,
                 shelf = draft.shelf,
                 locations = locations,
-                onRoomChange = { onDraftChange(draft.copy(room = it)) },
-                onUnitChange = { onDraftChange(draft.copy(unit = it)) },
+                onRoomChange = { onDraftChange(draft.copy(room = it, unit = "", shelf = "")) },
+                onUnitChange = { onDraftChange(draft.copy(unit = it, shelf = "")) },
                 onShelfChange = { onDraftChange(draft.copy(shelf = it)) },
             )
             TextFieldLine(draft.positionNote, { onDraftChange(draft.copy(positionNote = it)) }, R.string.field_position_note)
@@ -3018,21 +3018,14 @@ private fun LocationDropdownFields(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         DropdownSelectField(
             value = room,
-            onValueChange = {
-                onRoomChange(it)
-                onUnitChange("")
-                onShelfChange("")
-            },
+            onValueChange = onRoomChange,
             options = roomOptions,
             label = R.string.field_room,
             modifier = Modifier.weight(1f),
         )
         DropdownSelectField(
             value = unit,
-            onValueChange = {
-                onUnitChange(it)
-                onShelfChange("")
-            },
+            onValueChange = onUnitChange,
             options = unitOptions,
             label = R.string.field_unit,
             modifier = Modifier.weight(1f),
@@ -3463,8 +3456,8 @@ private fun MoveBookSheet(
                 unit = unit,
                 shelf = shelf,
                 locations = locations,
-                onRoomChange = { room = it },
-                onUnitChange = { unit = it },
+                onRoomChange = { room = it; unit = ""; shelf = "" },
+                onUnitChange = { unit = it; shelf = "" },
                 onShelfChange = { shelf = it },
             )
             TextFieldLine(positionNote, { positionNote = it }, R.string.field_position_note)
