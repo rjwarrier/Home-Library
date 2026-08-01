@@ -3165,7 +3165,7 @@ private fun SuggestedTextFieldLine(
     modifier: Modifier = Modifier,
     commaAppend: Boolean = false,
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
     val activeToken = value.substringAfterLast(",").trim()
     val filtered = suggestions
         .filter { suggestion ->
@@ -3175,27 +3175,36 @@ private fun SuggestedTextFieldLine(
             value.split(",").map { it.trim().lowercase() }.contains(suggestion.lowercase())
         }
         .take(6)
-    Box(modifier = modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth()) {
         TextFieldLine(
             value = value,
-            onValueChange = {
-                onValueChange(it)
-                expanded = suggestions.isNotEmpty()
-            },
+            onValueChange = onValueChange,
             label = label,
-            modifier = Modifier.onFocusChanged { focusState ->
-                expanded = focusState.isFocused && suggestions.isNotEmpty()
-            },
+            modifier = Modifier.onFocusChanged { focusState -> focused = focusState.isFocused },
         )
-        DropdownMenu(expanded = expanded && filtered.isNotEmpty(), onDismissRequest = { expanded = false }) {
-            filtered.forEach { suggestion ->
-                DropdownMenuItem(
-                    text = { Text(suggestion) },
-                    onClick = {
-                        onValueChange(if (commaAppend) value.withCommaSuggestion(suggestion) else suggestion)
-                        expanded = false
-                    },
-                )
+        AnimatedVisibility(visible = focused && filtered.isNotEmpty()) {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 2.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            ) {
+                Column {
+                    filtered.forEach { suggestion ->
+                        Text(
+                            text = suggestion,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onValueChange(if (commaAppend) value.withCommaSuggestion(suggestion) else suggestion)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    }
+                }
             }
         }
     }
