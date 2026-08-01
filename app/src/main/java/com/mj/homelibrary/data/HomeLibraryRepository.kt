@@ -90,6 +90,8 @@ class HomeLibraryRepository(
         expectedReturnDateEpochMillis: Long?,
         notes: String?,
         workManager: WorkManager,
+        remindersEnabled: Boolean,
+        reminderLeadDays: Int,
     ) {
         val existing = loanDao.activeLoanForBook(bookId)
         if (existing != null) return
@@ -102,8 +104,8 @@ class HomeLibraryRepository(
                 notes = notes?.trim()?.takeIf(String::isNotBlank),
             ),
         )
-        if (expectedReturnDateEpochMillis != null) {
-            enqueueLoanReminder(workManager, loanId, bookId, expectedReturnDateEpochMillis)
+        if (expectedReturnDateEpochMillis != null && remindersEnabled) {
+            enqueueLoanReminder(workManager, loanId, bookId, expectedReturnDateEpochMillis, reminderLeadDays)
         }
     }
 
@@ -129,8 +131,10 @@ class HomeLibraryRepository(
         loanId: Long,
         bookId: Long,
         dueEpochMillis: Long,
+        leadDays: Int,
     ) {
-        val delay = (dueEpochMillis - System.currentTimeMillis()).coerceAtLeast(0L)
+        val leadMillis = TimeUnit.DAYS.toMillis(leadDays.coerceAtLeast(0).toLong())
+        val delay = (dueEpochMillis - leadMillis - System.currentTimeMillis()).coerceAtLeast(0L)
         val input = Data.Builder()
             .putLong(LoanReminderWorker.KEY_LOAN_ID, loanId)
             .putLong(LoanReminderWorker.KEY_BOOK_ID, bookId)

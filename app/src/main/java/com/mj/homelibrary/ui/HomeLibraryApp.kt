@@ -74,6 +74,7 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Handshake
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.MoreVert
@@ -85,6 +86,7 @@ import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.RunningWithErrors
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Sort
 import androidx.compose.material.icons.outlined.Star
@@ -102,6 +104,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -157,10 +160,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.mj.homelibrary.R
+import com.mj.homelibrary.data.AppFontFamily
+import com.mj.homelibrary.data.AppearanceSettings
+import com.mj.homelibrary.data.BackgroundTintLevel
 import com.mj.homelibrary.data.BookFormatCode
 import com.mj.homelibrary.data.BookSortCode
+import com.mj.homelibrary.data.ColorSource
+import com.mj.homelibrary.data.FabPlacement
+import com.mj.homelibrary.data.FontScalePreference
 import com.mj.homelibrary.data.LanguageCode
+import com.mj.homelibrary.data.LibrarySettings
 import com.mj.homelibrary.data.ReadStatusCode
+import com.mj.homelibrary.data.ThemeColorIntensity
+import com.mj.homelibrary.data.ThemePreference
 import com.mj.homelibrary.data.entity.BookEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
@@ -179,6 +191,15 @@ private enum class HomeTab(@StringRes val labelRes: Int, @StringRes val titleRes
     Loans(R.string.nav_loans, R.string.screen_loans, Icons.Outlined.People),
     Stats(R.string.nav_stats, R.string.screen_stats, Icons.Outlined.BarChart),
     Settings(R.string.nav_settings, R.string.screen_settings, Icons.Outlined.Settings),
+}
+
+private enum class SettingsRoute {
+    Main,
+    Appearance,
+    LibraryPreferences,
+    DataRecovery,
+    PrivacyData,
+    HelpAbout,
 }
 
 private fun BookEntity.matchesIsbn(isbn: String): Boolean {
@@ -203,8 +224,11 @@ private fun List<String>.distinctSorted(): List<String> =
 @Composable
 fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val appearanceSettings by viewModel.appearanceSettings.collectAsStateWithLifecycle()
+    val librarySettings by viewModel.librarySettings.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by remember { mutableStateOf(HomeTab.Library) }
+    var settingsRoute by remember { mutableStateOf(SettingsRoute.Main) }
     var fabExpanded by remember { mutableStateOf(false) }
     var showScanner by remember { mutableStateOf(false) }
     var showAddBook by remember { mutableStateOf(false) }
@@ -253,10 +277,12 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
         bottomBar = {
             GranthapuraNavigationBar(selectedTab = selectedTab, onSelect = {
                 selectedTab = it
+                if (it != HomeTab.Settings) settingsRoute = SettingsRoute.Main
                 fabExpanded = false
             })
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButtonPosition = if (appearanceSettings.fabPlacement == FabPlacement.LEFT) FabPosition.Start else FabPosition.End,
         floatingActionButton = {
             AnimatedVisibility(
                 visible = selectedTab in listOf(HomeTab.Library, HomeTab.Shelves, HomeTab.Loans),
@@ -266,6 +292,7 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
                 when (selectedTab) {
                     HomeTab.Library -> GranthapuraFabMenu(
                         expanded = fabExpanded,
+                        placement = appearanceSettings.fabPlacement,
                         onToggle = { fabExpanded = !fabExpanded },
                         onScan = {
                             fabExpanded = false
@@ -341,6 +368,33 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
 
                 HomeTab.Settings -> SettingsScreen(
                     state = state,
+                    route = settingsRoute,
+                    appearanceSettings = appearanceSettings,
+                    librarySettings = librarySettings,
+                    onOpenAppearance = { settingsRoute = SettingsRoute.Appearance },
+                    onOpenLibraryPreferences = { settingsRoute = SettingsRoute.LibraryPreferences },
+                    onOpenDataRecovery = { settingsRoute = SettingsRoute.DataRecovery },
+                    onOpenPrivacyData = { settingsRoute = SettingsRoute.PrivacyData },
+                    onOpenHelpAbout = { settingsRoute = SettingsRoute.HelpAbout },
+                    onCloseAppearance = { settingsRoute = SettingsRoute.Main },
+                    onThemeSelected = viewModel::setThemePreference,
+                    onColorSourceSelected = viewModel::setColorSource,
+                    onThemeColorIntensitySelected = viewModel::setThemeColorIntensity,
+                    onBackgroundTintLevelSelected = viewModel::setBackgroundTintLevel,
+                    onFontFamilySelected = viewModel::setAppFontFamily,
+                    onFontScaleSelected = viewModel::setFontScalePreference,
+                    onContentFontScaleSelected = viewModel::setContentFontScalePreference,
+                    onFollowUiFontScaleChanged = viewModel::setFollowUiFontScale,
+                    onFabPlacementSelected = viewModel::setFabPlacement,
+                    onDefaultGridModeChange = viewModel::setGridMode,
+                    onDefaultSortChange = viewModel::setSort,
+                    onLoanRemindersEnabledChange = viewModel::setLoanRemindersEnabled,
+                    onLoanReminderLeadDaysChange = viewModel::setLoanReminderLeadDays,
+                    onBackupReminderDaysChange = viewModel::setBackupReminderDays,
+                    onExportJson = viewModel::exportJson,
+                    onExportCsv = viewModel::exportCsv,
+                    onImportJson = viewModel::importJson,
+                    onImportCsv = viewModel::importCsv,
                     onExportCompleteBackup = viewModel::exportCompleteBackup,
                     onImportCompleteBackup = viewModel::importCompleteBackup,
                 )
@@ -531,7 +585,7 @@ fun HomeLibraryApp(viewModel: HomeLibraryViewModel = viewModel()) {
 private fun GranthapuraNavigationBar(selectedTab: HomeTab, onSelect: (HomeTab) -> Unit) {
     NavigationBar(
         modifier = Modifier
-            .height(72.dp),
+            .height(dimensionResource(R.dimen.bottom_nav_height)),
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 3.dp,
     ) {
@@ -540,8 +594,14 @@ private fun GranthapuraNavigationBar(selectedTab: HomeTab, onSelect: (HomeTab) -
                 selected = selectedTab == tab,
                 onClick = { onSelect(tab) },
                 icon = { Icon(tab.icon, contentDescription = null) },
-                label = { Text(stringResource(tab.labelRes), maxLines = 1) },
-                alwaysShowLabel = false,
+                label = {
+                    Text(
+                        text = stringResource(tab.labelRes),
+                        maxLines = 1,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                },
+                alwaysShowLabel = true,
             )
         }
     }
@@ -1688,16 +1748,89 @@ private fun BackupCard(onExportJson: () -> Unit, onExportCsv: () -> Unit, onImpo
 @Composable
 private fun SettingsScreen(
     state: HomeLibraryUiState,
+    route: SettingsRoute,
+    appearanceSettings: AppearanceSettings,
+    librarySettings: LibrarySettings,
+    onOpenAppearance: () -> Unit,
+    onOpenLibraryPreferences: () -> Unit,
+    onOpenDataRecovery: () -> Unit,
+    onOpenPrivacyData: () -> Unit,
+    onOpenHelpAbout: () -> Unit,
+    onCloseAppearance: () -> Unit,
+    onThemeSelected: (ThemePreference) -> Unit,
+    onColorSourceSelected: (ColorSource) -> Unit,
+    onThemeColorIntensitySelected: (ThemeColorIntensity) -> Unit,
+    onBackgroundTintLevelSelected: (BackgroundTintLevel) -> Unit,
+    onFontFamilySelected: (AppFontFamily) -> Unit,
+    onFontScaleSelected: (FontScalePreference) -> Unit,
+    onContentFontScaleSelected: (FontScalePreference) -> Unit,
+    onFollowUiFontScaleChanged: (Boolean) -> Unit,
+    onFabPlacementSelected: (FabPlacement) -> Unit,
+    onDefaultGridModeChange: (Boolean) -> Unit,
+    onDefaultSortChange: (BookSortCode) -> Unit,
+    onLoanRemindersEnabledChange: (Boolean) -> Unit,
+    onLoanReminderLeadDaysChange: (Int) -> Unit,
+    onBackupReminderDaysChange: (Int) -> Unit,
+    onExportJson: (Uri) -> Unit,
+    onExportCsv: (Uri) -> Unit,
+    onImportJson: (Uri) -> Unit,
+    onImportCsv: (Uri) -> Unit,
     onExportCompleteBackup: (Uri) -> Unit,
     onImportCompleteBackup: (Uri) -> Unit,
 ) {
-    val backupFilename = stringResource(R.string.backup_complete_filename)
-    val completeBackupExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) onExportCompleteBackup(uri)
+    when (route) {
+        SettingsRoute.Appearance -> {
+            AppearanceSettingsScreen(
+                settings = appearanceSettings,
+                onBack = onCloseAppearance,
+                onThemeSelected = onThemeSelected,
+                onColorSourceSelected = onColorSourceSelected,
+                onThemeColorIntensitySelected = onThemeColorIntensitySelected,
+                onBackgroundTintLevelSelected = onBackgroundTintLevelSelected,
+                onFontFamilySelected = onFontFamilySelected,
+                onFontScaleSelected = onFontScaleSelected,
+                onContentFontScaleSelected = onContentFontScaleSelected,
+                onFollowUiFontScaleChanged = onFollowUiFontScaleChanged,
+                onFabPlacementSelected = onFabPlacementSelected,
+            )
+            return
+        }
+        SettingsRoute.LibraryPreferences -> {
+            LibraryPreferencesScreen(
+                settings = librarySettings,
+                onBack = onCloseAppearance,
+                onDefaultGridModeChange = onDefaultGridModeChange,
+                onDefaultSortChange = onDefaultSortChange,
+            )
+            return
+        }
+        SettingsRoute.DataRecovery -> {
+            DataRecoverySettingsScreen(
+                settings = librarySettings,
+                onBack = onCloseAppearance,
+                onExportJson = onExportJson,
+                onExportCsv = onExportCsv,
+                onImportJson = onImportJson,
+                onImportCsv = onImportCsv,
+                onExportCompleteBackup = onExportCompleteBackup,
+                onImportCompleteBackup = onImportCompleteBackup,
+                onLoanRemindersEnabledChange = onLoanRemindersEnabledChange,
+                onLoanReminderLeadDaysChange = onLoanReminderLeadDaysChange,
+                onBackupReminderDaysChange = onBackupReminderDaysChange,
+            )
+            return
+        }
+        SettingsRoute.PrivacyData -> {
+            LocalDataPrivacyScreen(onBack = onCloseAppearance)
+            return
+        }
+        SettingsRoute.HelpAbout -> {
+            HelpAboutScreen(onBack = onCloseAppearance)
+            return
+        }
+        SettingsRoute.Main -> Unit
     }
-    val completeBackupImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) onImportCompleteBackup(uri)
-    }
+
     ContentColumn {
         ScreenHeader(
             titleRes = R.string.screen_settings,
@@ -1709,11 +1842,113 @@ private fun SettingsScreen(
             contentPadding = PaddingValues(bottom = dimensionResource(R.dimen.space_xl)),
         ) {
             item {
-                CompleteBackupCard(
-                    onExport = { completeBackupExporter.launch(backupFilename) },
-                    onRestore = { completeBackupImporter.launch(arrayOf("application/json", "text/*")) },
+                AppearanceEntryCard(onOpenAppearance = onOpenAppearance)
+            }
+            item {
+                SettingsEntryCard(
+                    icon = Icons.Outlined.AutoStories,
+                    title = stringResource(R.string.settings_library_preferences),
+                    body = stringResource(R.string.settings_library_preferences_subtitle),
+                    onClick = onOpenLibraryPreferences,
                 )
             }
+            item {
+                SettingsEntryCard(
+                    icon = Icons.Outlined.CloudDone,
+                    title = stringResource(R.string.settings_data_recovery_title),
+                    body = stringResource(R.string.settings_data_recovery_subtitle),
+                    onClick = onOpenDataRecovery,
+                )
+            }
+            item {
+                SettingsEntryCard(
+                    icon = Icons.Outlined.Security,
+                    title = stringResource(R.string.settings_privacy_data_title),
+                    body = stringResource(R.string.settings_privacy_data_subtitle),
+                    onClick = onOpenPrivacyData,
+                )
+            }
+            item {
+                SettingsEntryCard(
+                    icon = Icons.Outlined.Info,
+                    title = stringResource(R.string.settings_help_about),
+                    body = stringResource(R.string.settings_help_subtitle),
+                    onClick = onOpenHelpAbout,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppearanceEntryCard(onOpenAppearance: () -> Unit) {
+    ElevatedCard(
+        onClick = onOpenAppearance,
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp))
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.settings_appearance), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+                Text(stringResource(R.string.settings_appearance_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 19.sp)
+            }
+            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(270f))
+        }
+    }
+}
+
+@Composable
+private fun SettingsEntryCard(
+    icon: ImageVector,
+    title: String,
+    body: String,
+    onClick: () -> Unit,
+) {
+    ElevatedCard(
+        onClick = onClick,
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp))
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+                Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 19.sp)
+            }
+            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(270f))
         }
     }
 }
@@ -1791,20 +2026,22 @@ private fun DesignedEmptyState(
 @Composable
 private fun GranthapuraFabMenu(
     expanded: Boolean,
+    placement: FabPlacement,
     onToggle: () -> Unit,
     onScan: () -> Unit,
     onManual: () -> Unit,
 ) {
     val rotation by animateFloatAsState(if (expanded) 45f else 0f, label = "fabRotation")
-    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val alignment = if (placement == FabPlacement.LEFT) Alignment.Start else Alignment.End
+    Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         AnimatedVisibility(
             visible = expanded,
             enter = fadeIn(spring()) + scaleIn(),
             exit = fadeOut() + scaleOut(),
         ) {
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                FabMenuItem(icon = Icons.Outlined.QrCodeScanner, label = stringResource(R.string.action_scan_isbn), onClick = onScan)
-                FabMenuItem(icon = Icons.Outlined.EditNote, label = stringResource(R.string.action_add_manually), onClick = onManual)
+            Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                FabMenuItem(icon = Icons.Outlined.QrCodeScanner, label = stringResource(R.string.action_scan_isbn), placement = placement, onClick = onScan)
+                FabMenuItem(icon = Icons.Outlined.EditNote, label = stringResource(R.string.action_add_manually), placement = placement, onClick = onManual)
             }
         }
         FloatingActionButton(
@@ -1835,20 +2072,30 @@ private fun ScreenFab(icon: ImageVector, label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun FabMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun FabMenuItem(icon: ImageVector, label: String, placement: FabPlacement, onClick: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (placement == FabPlacement.LEFT) {
+            FabMenuIcon(icon = icon, label = label, onClick = onClick)
+        }
         Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Text(label, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
         }
-        Surface(
-            modifier = Modifier.size(52.dp).clickable(onClick = onClick),
-            shape = RoundedCornerShape(17.dp),
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            tonalElevation = 4.dp,
-        ) {
-            Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = label) }
+        if (placement == FabPlacement.RIGHT) {
+            FabMenuIcon(icon = icon, label = label, onClick = onClick)
         }
+    }
+}
+
+@Composable
+private fun FabMenuIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.size(52.dp).clickable(onClick = onClick),
+        shape = RoundedCornerShape(17.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        tonalElevation = 4.dp,
+    ) {
+        Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = label) }
     }
 }
 

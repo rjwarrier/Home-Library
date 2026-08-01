@@ -7,9 +7,17 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
 import com.mj.homelibrary.HomeLibraryApplication
 import com.mj.homelibrary.R
+import com.mj.homelibrary.data.AppFontFamily
+import com.mj.homelibrary.data.BackgroundTintLevel
 import com.mj.homelibrary.data.BookSortCode
+import com.mj.homelibrary.data.ColorSource
+import com.mj.homelibrary.data.FabPlacement
+import com.mj.homelibrary.data.FontScalePreference
 import com.mj.homelibrary.data.LanguageCode
+import com.mj.homelibrary.data.LibrarySettings
 import com.mj.homelibrary.data.ReadStatusCode
+import com.mj.homelibrary.data.ThemeColorIntensity
+import com.mj.homelibrary.data.ThemePreference
 import com.mj.homelibrary.data.entity.BookEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
@@ -29,9 +37,20 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 class HomeLibraryViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = (application as HomeLibraryApplication).repository
-    private val filters = MutableStateFlow(LibraryFilters())
+    private val homeLibraryApplication = application as HomeLibraryApplication
+    private val repository = homeLibraryApplication.repository
+    private val appearanceRepository = homeLibraryApplication.appearanceRepository
+    private val librarySettingsRepository = homeLibraryApplication.librarySettingsRepository
+    private val filters = MutableStateFlow(
+        LibraryFilters(
+            sort = librarySettingsRepository.settings.value.defaultSort,
+            gridMode = librarySettingsRepository.settings.value.defaultGridMode,
+        ),
+    )
     private val transient = MutableStateFlow(TransientState())
+
+    val appearanceSettings = appearanceRepository.settings
+    val librarySettings = librarySettingsRepository.settings
 
     val state: StateFlow<HomeLibraryUiState> = combine(
         repository.books,
@@ -71,10 +90,12 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun setSort(sort: BookSortCode) {
+        librarySettingsRepository.setDefaultSort(sort)
         filters.update { it.copy(sort = sort) }
     }
 
     fun setGridMode(enabled: Boolean) {
+        librarySettingsRepository.setDefaultGridMode(enabled)
         filters.update { it.copy(gridMode = enabled) }
     }
 
@@ -96,6 +117,54 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setTag(tag: String?) {
         filters.update { it.copy(tag = tag) }
+    }
+
+    fun setThemePreference(preference: ThemePreference) {
+        appearanceRepository.setThemePreference(preference)
+    }
+
+    fun setColorSource(source: ColorSource) {
+        appearanceRepository.setColorSource(source)
+    }
+
+    fun setThemeColorIntensity(intensity: ThemeColorIntensity) {
+        appearanceRepository.setThemeColorIntensity(intensity)
+    }
+
+    fun setBackgroundTintLevel(level: BackgroundTintLevel) {
+        appearanceRepository.setBackgroundTintLevel(level)
+    }
+
+    fun setAppFontFamily(fontFamily: AppFontFamily) {
+        appearanceRepository.setAppFontFamily(fontFamily)
+    }
+
+    fun setFontScalePreference(preference: FontScalePreference) {
+        appearanceRepository.setFontScalePreference(preference)
+    }
+
+    fun setContentFontScalePreference(preference: FontScalePreference) {
+        appearanceRepository.setContentFontScalePreference(preference)
+    }
+
+    fun setFollowUiFontScale(enabled: Boolean) {
+        appearanceRepository.setFollowUiFontScale(enabled)
+    }
+
+    fun setFabPlacement(placement: FabPlacement) {
+        appearanceRepository.setFabPlacement(placement)
+    }
+
+    fun setLoanRemindersEnabled(enabled: Boolean) {
+        librarySettingsRepository.setLoanRemindersEnabled(enabled)
+    }
+
+    fun setLoanReminderLeadDays(days: Int) {
+        librarySettingsRepository.setLoanReminderLeadDays(days)
+    }
+
+    fun setBackupReminderDays(days: Int) {
+        librarySettingsRepository.setBackupReminderDays(days)
     }
 
     fun addBook(draft: BookDraft, onSaved: () -> Unit) {
@@ -177,6 +246,8 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
                 expectedReturnDateEpochMillis = draft.dueDate.toEpochMillisOrNull(),
                 notes = draft.notes,
                 workManager = WorkManager.getInstance(getApplication()),
+                remindersEnabled = librarySettings.value.loanRemindersEnabled,
+                reminderLeadDays = librarySettings.value.loanReminderLeadDays,
             )
             onSaved()
         }
@@ -219,6 +290,7 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
     fun exportCompleteBackup(uri: Uri) {
         viewModelScope.launch {
             repository.exportCompleteBackup(uri)
+            librarySettingsRepository.markCompleteBackupExported()
             transient.update { it.copy(statusRes = R.string.backup_exported) }
         }
     }

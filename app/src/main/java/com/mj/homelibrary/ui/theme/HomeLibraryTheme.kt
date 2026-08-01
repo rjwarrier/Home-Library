@@ -1,5 +1,6 @@
 package com.mj.homelibrary.ui.theme
 
+import android.graphics.Color as AndroidColor
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
@@ -11,13 +12,26 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.mj.homelibrary.data.AppFontFamily
+import com.mj.homelibrary.data.AppearanceSettings
+import com.mj.homelibrary.data.BackgroundTintLevel
+import com.mj.homelibrary.data.ColorSource
+import com.mj.homelibrary.data.ThemeColorIntensity
 
 private val WarmLightColors = lightColorScheme(
     primary = Color(0xFF6F4E27),
@@ -150,20 +164,150 @@ private val HomeLibraryShapes = Shapes(
 @Composable
 fun HomeLibraryTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    appearanceSettings: AppearanceSettings = AppearanceSettings(),
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val colorScheme: ColorScheme = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme -> dynamicDarkColorScheme(context)
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> dynamicLightColorScheme(context)
-        darkTheme -> WarmDarkColors
+    val effectiveDarkTheme = when (appearanceSettings.themePreference) {
+        com.mj.homelibrary.data.ThemePreference.SYSTEM -> darkTheme
+        com.mj.homelibrary.data.ThemePreference.LIGHT -> false
+        com.mj.homelibrary.data.ThemePreference.DARK -> true
+        com.mj.homelibrary.data.ThemePreference.AMOLED -> true
+    }
+    val amoledTheme = appearanceSettings.themePreference == com.mj.homelibrary.data.ThemePreference.AMOLED
+    val baseScheme: ColorScheme = when {
+        appearanceSettings.colorSource == ColorSource.MATERIAL_YOU &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            effectiveDarkTheme -> dynamicDarkColorScheme(context)
+        appearanceSettings.colorSource == ColorSource.MATERIAL_YOU &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> dynamicLightColorScheme(context)
+        effectiveDarkTheme -> WarmDarkColors
         else -> WarmLightColors
     }
+    val colorScheme = baseScheme
+        .withAmoledIfNeeded(amoledTheme)
+        .withAppearanceTuning(
+            darkTheme = effectiveDarkTheme,
+            amoledTheme = amoledTheme,
+            intensity = appearanceSettings.themeColorIntensity,
+            backgroundTint = appearanceSettings.backgroundTintLevel,
+        )
+    val fontFamily = appearanceSettings.appFontFamily.toFontFamily()
+    val typography = remember(appearanceSettings.appFontFamily) {
+        HomeLibraryTypography.withFontFamily(fontFamily)
+    }
+    val currentDensity = LocalDensity.current
+    val activeFontScale = if (appearanceSettings.followUiFontScale) {
+        appearanceSettings.fontScalePreference.scale
+    } else {
+        appearanceSettings.contentFontScalePreference.scale
+    }
+    val scaledDensity = remember(currentDensity, activeFontScale) {
+        Density(
+            density = currentDensity.density,
+            fontScale = currentDensity.fontScale * activeFontScale,
+        )
+    }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = HomeLibraryTypography,
-        shapes = HomeLibraryShapes,
-        content = content,
-    )
+    CompositionLocalProvider(LocalDensity provides scaledDensity) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = typography,
+            shapes = HomeLibraryShapes,
+            content = content,
+        )
+    }
 }
+
+private fun ColorScheme.withAmoledIfNeeded(amoledTheme: Boolean): ColorScheme =
+    if (!amoledTheme) {
+        this
+    } else {
+        copy(
+            background = Color.Black,
+            surface = Color.Black,
+            surfaceVariant = Color(0xFF1C1C1C),
+            surfaceContainerLowest = Color.Black,
+            surfaceContainerLow = Color(0xFF0E0E0E),
+            surfaceContainer = Color(0xFF151515),
+            surfaceContainerHigh = Color(0xFF1C1C1C),
+            surfaceContainerHighest = Color(0xFF242424),
+        )
+    }
+
+private fun ColorScheme.withAppearanceTuning(
+    darkTheme: Boolean,
+    amoledTheme: Boolean,
+    intensity: ThemeColorIntensity,
+    backgroundTint: BackgroundTintLevel,
+): ColorScheme =
+    copy(
+        primary = primary.scaleColorIntensity(intensity),
+        primaryContainer = primaryContainer.scaleColorIntensity(intensity),
+        secondary = secondary.scaleColorIntensity(intensity),
+        secondaryContainer = secondaryContainer.scaleColorIntensity(intensity),
+        tertiary = tertiary.scaleColorIntensity(intensity),
+        tertiaryContainer = tertiaryContainer.scaleColorIntensity(intensity),
+        inversePrimary = inversePrimary.scaleColorIntensity(intensity),
+        background = background.tintSurface(primary, backgroundTint, darkTheme, amoledTheme, 0.72f),
+        surface = surface.tintSurface(primary, backgroundTint, darkTheme, amoledTheme, 0.84f),
+        surfaceVariant = surfaceVariant.tintSurface(primary, backgroundTint, darkTheme, amoledTheme, 1.05f),
+        surfaceContainerLowest = surfaceContainerLowest.tintSurface(primary, backgroundTint, darkTheme, amoledTheme, 0.66f),
+        surfaceContainerLow = surfaceContainerLow.tintSurface(primary, backgroundTint, darkTheme, amoledTheme, 0.86f),
+        surfaceContainer = surfaceContainer.tintSurface(primary, backgroundTint, darkTheme, amoledTheme, 0.96f),
+        surfaceContainerHigh = surfaceContainerHigh.tintSurface(primary, backgroundTint, darkTheme, amoledTheme, 1.08f),
+        surfaceContainerHighest = surfaceContainerHighest.tintSurface(primary, backgroundTint, darkTheme, amoledTheme, 1.18f),
+        outline = lerp(outline, primary.scaleColorIntensity(intensity), if (darkTheme || amoledTheme) 0.18f else 0.12f),
+    )
+
+private fun Color.tintSurface(
+    primary: Color,
+    backgroundTint: BackgroundTintLevel,
+    darkTheme: Boolean,
+    amoledTheme: Boolean,
+    strength: Float,
+): Color {
+    if (amoledTheme && this == Color.Black) return Color.Black
+    val maxAlpha = if (darkTheme || amoledTheme) 0.22f else 0.14f
+    val alpha = (backgroundTint.amount * strength).coerceIn(0f, maxAlpha)
+    return primary.copy(alpha = alpha).compositeOver(this)
+}
+
+private fun Color.scaleColorIntensity(intensity: ThemeColorIntensity): Color {
+    val hsv = FloatArray(3)
+    AndroidColor.colorToHSV(toArgb(), hsv)
+    hsv[1] = (hsv[1] * intensity.level).coerceIn(0f, 1f)
+    hsv[2] = when (intensity) {
+        ThemeColorIntensity.MUTED -> (hsv[2] * 0.94f).coerceIn(0f, 1f)
+        ThemeColorIntensity.NORMAL -> hsv[2]
+        ThemeColorIntensity.VIVID -> (hsv[2] * 1.03f).coerceIn(0f, 1f)
+        ThemeColorIntensity.POP -> (hsv[2] * 1.07f).coerceIn(0f, 1f)
+    }
+    return Color(AndroidColor.HSVToColor(hsv))
+}
+
+private fun AppFontFamily.toFontFamily(): FontFamily =
+    when (this) {
+        AppFontFamily.SANS_SERIF -> FontFamily.SansSerif
+        AppFontFamily.SERIF -> FontFamily.Serif
+        AppFontFamily.MONO -> FontFamily.Monospace
+    }
+
+private fun Typography.withFontFamily(fontFamily: FontFamily): Typography =
+    copy(
+        displayLarge = displayLarge.copy(fontFamily = fontFamily),
+        displayMedium = displayMedium.copy(fontFamily = fontFamily),
+        displaySmall = displaySmall.copy(fontFamily = fontFamily),
+        headlineLarge = headlineLarge.copy(fontFamily = fontFamily),
+        headlineMedium = headlineMedium.copy(fontFamily = fontFamily),
+        headlineSmall = headlineSmall.copy(fontFamily = fontFamily),
+        titleLarge = titleLarge.copy(fontFamily = fontFamily),
+        titleMedium = titleMedium.copy(fontFamily = fontFamily),
+        titleSmall = titleSmall.copy(fontFamily = fontFamily),
+        bodyLarge = bodyLarge.copy(fontFamily = fontFamily),
+        bodyMedium = bodyMedium.copy(fontFamily = fontFamily),
+        bodySmall = bodySmall.copy(fontFamily = fontFamily),
+        labelLarge = labelLarge.copy(fontFamily = fontFamily),
+        labelMedium = labelMedium.copy(fontFamily = fontFamily),
+        labelSmall = labelSmall.copy(fontFamily = fontFamily),
+    )
