@@ -83,6 +83,14 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         filters.update { it.copy(readStatusCode = readStatusCode) }
     }
 
+    fun setOnLoanOnly(enabled: Boolean) {
+        filters.update { it.copy(onLoanOnly = enabled) }
+    }
+
+    fun setLocation(locationId: Long?) {
+        filters.update { it.copy(locationId = locationId) }
+    }
+
     fun addBook(draft: BookDraft, onSaved: () -> Unit) {
         if (draft.title.isBlank()) {
             transient.update { it.copy(errorRes = R.string.error_title_required) }
@@ -203,10 +211,14 @@ data class LibraryFilters(
     val gridMode: Boolean = true,
     val languageCode: String? = null,
     val readStatusCode: String? = null,
+    val onLoanOnly: Boolean = false,
+    val locationId: Long? = null,
 ) {
     fun matches(item: BookListItem): Boolean {
         if (languageCode != null && item.book.languageCode != languageCode) return false
         if (readStatusCode != null && item.book.readStatusCode != readStatusCode) return false
+        if (onLoanOnly && !item.isOnLoan) return false
+        if (locationId != null && item.location?.id != locationId) return false
         if (query.isBlank()) return true
         val normalizedQuery = query.searchKey()
         val haystack = buildString {

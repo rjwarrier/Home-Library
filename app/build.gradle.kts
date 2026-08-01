@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-layout.buildDirectory.set(file("../.out/app-build"))
+layout.buildDirectory.set(file("../.out-redesign/app-build"))
 
 android {
     namespace = "com.mj.homelibrary"

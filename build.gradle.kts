@@ -5,4 +5,4 @@ plugins {
     alias(libs.plugins.ksp) apply false
 }
 
-layout.buildDirectory.set(file(".out/root-build"))
+layout.buildDirectory.set(file(".out-redesign/root-build"))
