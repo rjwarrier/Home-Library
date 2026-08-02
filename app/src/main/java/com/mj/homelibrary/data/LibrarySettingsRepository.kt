@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
 
 data class LibrarySettings(
     val defaultSort: BookSortCode = BookSortCode.Recent,
@@ -13,7 +14,18 @@ data class LibrarySettings(
     val backupReminderDays: Int = 30,
     val lastCompleteBackupEpochMillis: Long? = null,
     val readingGoal: Int = 24,
-)
+    val mainGenres: List<String> = DEFAULT_MAIN_GENRES,
+    val subGenres: List<String> = DEFAULT_SUB_GENRES,
+) {
+    companion object {
+        val DEFAULT_MAIN_GENRES = listOf("Fiction", "Non-Fiction")
+        val DEFAULT_SUB_GENRES = listOf(
+            "Crime", "Thriller", "Mystery", "Sci-Fi", "Fantasy", "Romance", "Horror",
+            "Classics", "Young Adult", "Children's", "Poetry", "Biography", "Memoir",
+            "History", "Science", "Philosophy", "Self-Help", "Business", "Travel", "Cooking",
+        )
+    }
+}
 
 class LibrarySettingsRepository(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -56,6 +68,36 @@ class LibrarySettingsRepository(context: Context) {
         refresh()
     }
 
+    fun addMainGenre(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        val current = readStringList(KEY_MAIN_GENRES, LibrarySettings.DEFAULT_MAIN_GENRES)
+        if (current.any { it.equals(trimmed, ignoreCase = true) }) return
+        writeStringList(KEY_MAIN_GENRES, current + trimmed)
+        refresh()
+    }
+
+    fun removeMainGenre(name: String) {
+        val current = readStringList(KEY_MAIN_GENRES, LibrarySettings.DEFAULT_MAIN_GENRES)
+        writeStringList(KEY_MAIN_GENRES, current.filterNot { it.equals(name, ignoreCase = true) })
+        refresh()
+    }
+
+    fun addSubGenre(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        val current = readStringList(KEY_SUB_GENRES, LibrarySettings.DEFAULT_SUB_GENRES)
+        if (current.any { it.equals(trimmed, ignoreCase = true) }) return
+        writeStringList(KEY_SUB_GENRES, current + trimmed)
+        refresh()
+    }
+
+    fun removeSubGenre(name: String) {
+        val current = readStringList(KEY_SUB_GENRES, LibrarySettings.DEFAULT_SUB_GENRES)
+        writeStringList(KEY_SUB_GENRES, current.filterNot { it.equals(name, ignoreCase = true) })
+        refresh()
+    }
+
     private fun refresh() {
         _settings.value = readSettings()
     }
@@ -71,7 +113,21 @@ class LibrarySettingsRepository(context: Context) {
                 ?.getLong(KEY_LAST_COMPLETE_BACKUP, 0L)
                 ?.takeIf { it > 0L },
             readingGoal = prefs.getInt(KEY_READING_GOAL, 24).coerceIn(1, 365),
+            mainGenres = readStringList(KEY_MAIN_GENRES, LibrarySettings.DEFAULT_MAIN_GENRES),
+            subGenres = readStringList(KEY_SUB_GENRES, LibrarySettings.DEFAULT_SUB_GENRES),
         )
+
+    private fun readStringList(key: String, fallback: List<String>): List<String> {
+        val raw = prefs.getString(key, null) ?: return fallback
+        return runCatching {
+            val array = JSONArray(raw)
+            List(array.length()) { array.optString(it) }.filter(String::isNotBlank)
+        }.getOrDefault(fallback)
+    }
+
+    private fun writeStringList(key: String, values: List<String>) {
+        prefs.edit().putString(key, JSONArray(values).toString()).apply()
+    }
 
     private inline fun <reified T : Enum<T>> readEnum(key: String, fallback: T): T =
         prefs.getString(key, null)?.let { saved ->
@@ -87,5 +143,7 @@ class LibrarySettingsRepository(context: Context) {
         const val KEY_BACKUP_REMINDER_DAYS = "backup_reminder_days"
         const val KEY_LAST_COMPLETE_BACKUP = "last_complete_backup"
         const val KEY_READING_GOAL = "reading_goal"
+        const val KEY_MAIN_GENRES = "main_genres"
+        const val KEY_SUB_GENRES = "sub_genres"
     }
 }

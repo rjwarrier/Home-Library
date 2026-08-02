@@ -131,8 +131,27 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         filters.update { it.copy(tag = tag) }
     }
 
+    fun setMainGenreFilter(mainGenre: String?) {
+        filters.update { it.copy(mainGenre = mainGenre) }
+    }
+
+    fun setSubGenreFilter(subGenre: String?) {
+        filters.update { it.copy(subGenre = subGenre) }
+    }
+
     fun clearFilters() {
-        filters.update { it.copy(query = "", languageCode = null, readStatusCode = null, onLoanOnly = false, locationId = null, tag = null) }
+        filters.update {
+            it.copy(
+                query = "",
+                languageCode = null,
+                readStatusCode = null,
+                onLoanOnly = false,
+                locationId = null,
+                tag = null,
+                mainGenre = null,
+                subGenre = null,
+            )
+        }
     }
 
     fun setThemePreference(preference: ThemePreference) {
@@ -187,6 +206,14 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
     fun setReadingGoal(goal: Int) {
         librarySettingsRepository.setReadingGoal(goal)
     }
+
+    fun addMainGenre(name: String) = librarySettingsRepository.addMainGenre(name)
+
+    fun removeMainGenre(name: String) = librarySettingsRepository.removeMainGenre(name)
+
+    fun addSubGenre(name: String) = librarySettingsRepository.addSubGenre(name)
+
+    fun removeSubGenre(name: String) = librarySettingsRepository.removeSubGenre(name)
 
     fun addBook(draft: BookDraft, onSaved: () -> Unit) {
         if (draft.title.isBlank()) {
@@ -387,6 +414,8 @@ data class LibraryFilters(
     val onLoanOnly: Boolean = false,
     val locationId: Long? = null,
     val tag: String? = null,
+    val mainGenre: String? = null,
+    val subGenre: String? = null,
 ) {
     fun matches(item: BookListItem): Boolean {
         if (languageCode != null && item.book.languageCode != languageCode) return false
@@ -394,6 +423,8 @@ data class LibraryFilters(
         if (onLoanOnly && !item.isOnLoan) return false
         if (locationId != null && item.location?.id != locationId) return false
         if (tag != null && item.book.tags.none { it.equals(tag, ignoreCase = true) }) return false
+        if (mainGenre != null && !item.book.mainGenre.equals(mainGenre, ignoreCase = true)) return false
+        if (subGenre != null && item.book.subGenres.none { it.equals(subGenre, ignoreCase = true) }) return false
         if (query.isBlank()) return true
         val normalizedQuery = query.searchKey()
         val haystack = buildString {
@@ -414,6 +445,12 @@ data class LibraryFilters(
             append(item.book.isbn13.orEmpty())
             append(' ')
             append(item.book.seriesName.orEmpty())
+            append(' ')
+            append(item.book.mainGenre.orEmpty())
+            append(' ')
+            append(item.book.subGenres.joinToString(" "))
+            append(' ')
+            append(item.book.edition.orEmpty())
         }.searchKey()
         return normalizedQuery in haystack
     }
@@ -452,6 +489,11 @@ data class BookDraft(
     val purchaseDate: String = "",
     val cost: String = "",
     val seriesName: String = "",
+    val mainGenre: String = "",
+    val subGenres: List<String> = emptyList(),
+    val bookType: String = "",
+    val edition: String = "",
+    val signedCopy: Boolean = false,
 ) {
     fun applyMetadata(metadata: BookMetadata): BookDraft = copy(
         title = metadata.title,
@@ -507,6 +549,11 @@ data class BookDraft(
             purchaseDateEpochMillis = purchaseDate.toEpochMillisOrNull(),
             cost = cost.toDoubleOrNull()?.takeIf { it > 0.0 },
             seriesName = seriesName.trim().takeIf(String::isNotBlank),
+            mainGenre = mainGenre.trim().takeIf(String::isNotBlank),
+            subGenres = subGenres,
+            bookType = bookType.trim().takeIf(String::isNotBlank),
+            edition = edition.trim().takeIf(String::isNotBlank),
+            signedCopy = signedCopy,
         )
     }
 }
@@ -543,7 +590,7 @@ data class LibraryStats(
                         it.addedDateEpochMillis.toLocalYear() == currentYear
                 },
                 languages = books.groupingBy { it.languageCode }.eachCount(),
-                genres = books.flatMap { it.tags }.groupingBy { it }.eachCount(),
+                genres = books.flatMap { it.subGenres }.groupingBy { it }.eachCount(),
                 mostBorrowed = loans.groupingBy { it.bookId }
                     .eachCount()
                     .entries
@@ -586,6 +633,11 @@ fun BookEntity.toBookDraft(): BookDraft = BookDraft(
     purchaseDate = purchaseDateEpochMillis?.toIsoDateString().orEmpty(),
     cost = cost?.let { if (it == it.toLong().toDouble()) it.toLong().toString() else it.toString() }.orEmpty(),
     seriesName = seriesName.orEmpty(),
+    mainGenre = mainGenre.orEmpty(),
+    subGenres = subGenres,
+    bookType = bookType.orEmpty(),
+    edition = edition.orEmpty(),
+    signedCopy = signedCopy,
 )
 
 private fun Long.toIsoDateString(): String =

@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,7 +22,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.CloudDone
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.GridView
@@ -35,10 +39,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -267,6 +277,104 @@ fun DataRecoverySettingsScreen(
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun GenreManagementScreen(
+    settings: LibrarySettings,
+    onBack: () -> Unit,
+    onAddMainGenre: (String) -> Unit,
+    onRemoveMainGenre: (String) -> Unit,
+    onAddSubGenre: (String) -> Unit,
+    onRemoveSubGenre: (String) -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = dimensionResource(R.dimen.space_screen)),
+        contentPadding = PaddingValues(bottom = dimensionResource(R.dimen.space_2xl)),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { SettingsSubscreenHeader(titleRes = R.string.settings_genre_management_title, onBack = onBack) }
+        item {
+            SettingsControlCard(icon = Icons.Outlined.Category, titleRes = R.string.field_main_genre) {
+                GenreManagementSection(
+                    values = settings.mainGenres,
+                    onAdd = onAddMainGenre,
+                    onRemove = onRemoveMainGenre,
+                )
+            }
+        }
+        item {
+            SettingsControlCard(icon = Icons.Outlined.Category, titleRes = R.string.field_sub_genre) {
+                GenreManagementSection(
+                    values = settings.subGenres,
+                    onAdd = onAddSubGenre,
+                    onRemove = onRemoveSubGenre,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GenreManagementSection(
+    values: List<String>,
+    onAdd: (String) -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    var newValue by remember { mutableStateOf("") }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        values.forEach { value ->
+            ManagedGenreChip(label = value, onRemove = { onRemove(value) })
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = newValue,
+            onValueChange = { newValue = it },
+            modifier = Modifier.weight(1f),
+            placeholder = { Text(stringResource(R.string.genre_add_placeholder)) },
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+        )
+        Button(
+            onClick = {
+                onAdd(newValue)
+                newValue = ""
+            },
+            enabled = newValue.isNotBlank(),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Text(stringResource(R.string.action_add))
+        }
+    }
+}
+
+@Composable
+private fun ManagedGenreChip(label: String, onRemove: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = stringResource(R.string.action_remove_genre, label),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }

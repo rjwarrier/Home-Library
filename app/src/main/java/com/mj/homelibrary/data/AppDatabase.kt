@@ -18,7 +18,7 @@ import com.mj.homelibrary.data.entity.LocationEntity
 
 @Database(
     entities = [BookEntity::class, LocationEntity::class, LoanEntity::class, BorrowerEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -56,9 +56,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE books ADD COLUMN mainGenre TEXT")
+                db.execSQL("ALTER TABLE books ADD COLUMN subGenres TEXT NOT NULL DEFAULT '[]'")
+                db.execSQL("ALTER TABLE books ADD COLUMN bookType TEXT")
+                db.execSQL("ALTER TABLE books ADD COLUMN edition TEXT")
+                db.execSQL("ALTER TABLE books ADD COLUMN signedCopy INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "home-library.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration(false)
                 .build()
     }

@@ -77,6 +77,7 @@ import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.CalendarToday
+import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
@@ -84,6 +85,8 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Draw
+import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Event
@@ -142,6 +145,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -227,6 +231,7 @@ private enum class SettingsRoute {
     Main,
     Appearance,
     LibraryPreferences,
+    GenreManagement,
     DataRecovery,
     PrivacyData,
     HelpAbout,
@@ -425,6 +430,8 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                     onOnLoanChange = viewModel::setOnLoanOnly,
                     onLocationChange = viewModel::setLocation,
                     onTagChange = viewModel::setTag,
+                    onMainGenreChange = viewModel::setMainGenreFilter,
+                    onSubGenreChange = viewModel::setSubGenreFilter,
                     onClearFilters = viewModel::clearFilters,
                     onBookClick = { selectedBook = it },
                     onScanFirst = { showScanner = true },
@@ -463,6 +470,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                     librarySettings = librarySettings,
                     onOpenAppearance = { settingsRoute = SettingsRoute.Appearance },
                     onOpenLibraryPreferences = { settingsRoute = SettingsRoute.LibraryPreferences },
+                    onOpenGenreManagement = { settingsRoute = SettingsRoute.GenreManagement },
                     onOpenDataRecovery = { settingsRoute = SettingsRoute.DataRecovery },
                     onOpenPrivacyData = { settingsRoute = SettingsRoute.PrivacyData },
                     onOpenHelpAbout = { settingsRoute = SettingsRoute.HelpAbout },
@@ -479,6 +487,10 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                     onDefaultGridModeChange = viewModel::setGridMode,
                     onDefaultSortChange = viewModel::setSort,
                     onReadingGoalChange = viewModel::setReadingGoal,
+                    onAddMainGenre = viewModel::addMainGenre,
+                    onRemoveMainGenre = viewModel::removeMainGenre,
+                    onAddSubGenre = viewModel::addSubGenre,
+                    onRemoveSubGenre = viewModel::removeSubGenre,
                     onLoanRemindersEnabledChange = viewModel::setLoanRemindersEnabled,
                     onLoanReminderLeadDaysChange = viewModel::setLoanReminderLeadDays,
                     onBackupReminderDaysChange = viewModel::setBackupReminderDays,
@@ -537,6 +549,8 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             tagSuggestions = tagSuggestions,
             seriesSuggestions = seriesSuggestions,
             locations = state.locations,
+            mainGenreOptions = librarySettings.mainGenres,
+            subGenreOptions = librarySettings.subGenres,
             lookupInProgress = state.transient.lookupInProgress,
             bulkProgress = bulkProgress,
             onDismiss = { showAddBook = false; advanceBulkQueue() },
@@ -563,6 +577,8 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             tagSuggestions = tagSuggestions,
             seriesSuggestions = seriesSuggestions,
             locations = state.locations,
+            mainGenreOptions = librarySettings.mainGenres,
+            subGenreOptions = librarySettings.subGenres,
             lookupInProgress = state.transient.lookupInProgress,
             bulkProgress = bulkProgress.takeIf { enrichFromScan },
             onDismiss = {
@@ -804,6 +820,8 @@ private fun LibraryScreen(
     onOnLoanChange: (Boolean) -> Unit,
     onLocationChange: (Long?) -> Unit,
     onTagChange: (String?) -> Unit,
+    onMainGenreChange: (String?) -> Unit,
+    onSubGenreChange: (String?) -> Unit,
     onClearFilters: () -> Unit,
     onBookClick: (BookListItem) -> Unit,
     onScanFirst: () -> Unit,
@@ -839,6 +857,8 @@ private fun LibraryScreen(
             onOnLoanChange = onOnLoanChange,
             onLocationChange = onLocationChange,
             onTagChange = onTagChange,
+            onMainGenreChange = onMainGenreChange,
+            onSubGenreChange = onSubGenreChange,
         )
 
         when {
@@ -967,11 +987,17 @@ private fun FilterStrip(
     onOnLoanChange: (Boolean) -> Unit,
     onLocationChange: (Long?) -> Unit,
     onTagChange: (String?) -> Unit,
+    onMainGenreChange: (String?) -> Unit,
+    onSubGenreChange: (String?) -> Unit,
 ) {
     val context = LocalContext.current
     val tags = remember(state.allBooks) { state.allBooks.flatMap { it.tags }.distinct().sortedBy { it.lowercase() } }
+    val mainGenres = remember(state.allBooks) { state.allBooks.mapNotNull { it.mainGenre }.distinct().sortedBy { it.lowercase() } }
+    val subGenres = remember(state.allBooks) { state.allBooks.flatMap { it.subGenres }.distinct().sortedBy { it.lowercase() } }
     val languages = remember(state.allBooks) { state.allBooks.map { it.languageCode }.distinct().sorted() }
-    var genreExpanded by remember { mutableStateOf(false) }
+    var tagsExpanded by remember { mutableStateOf(false) }
+    var mainGenreExpanded by remember { mutableStateOf(false) }
+    var subGenreExpanded by remember { mutableStateOf(false) }
     var languageExpanded by remember { mutableStateOf(false) }
     var locationExpanded by remember { mutableStateOf(false) }
     val dismissKeyboard = rememberDismissKeyboard()
@@ -979,20 +1005,80 @@ private fun FilterStrip(
         horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_sm)),
         contentPadding = PaddingValues(vertical = dimensionResource(R.dimen.space_xs)),
     ) {
+        if (mainGenres.isNotEmpty()) {
+            item {
+                Box {
+                    MorphChip(
+                        selected = state.filters.mainGenre != null,
+                        label = state.filters.mainGenre ?: stringResource(R.string.filter_main_genre),
+                        trailing = Icons.Outlined.ExpandMore,
+                        onClick = { dismissKeyboard(); mainGenreExpanded = true },
+                    )
+                    DropdownMenu(expanded = mainGenreExpanded, onDismissRequest = { mainGenreExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.filter_all_main_genres)) },
+                            onClick = {
+                                onMainGenreChange(null)
+                                mainGenreExpanded = false
+                            },
+                        )
+                        mainGenres.forEach { genre ->
+                            DropdownMenuItem(
+                                text = { Text(genre) },
+                                onClick = {
+                                    onMainGenreChange(genre)
+                                    mainGenreExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (subGenres.isNotEmpty()) {
+            item {
+                Box {
+                    MorphChip(
+                        selected = state.filters.subGenre != null,
+                        label = state.filters.subGenre ?: stringResource(R.string.filter_sub_genre),
+                        trailing = Icons.Outlined.ExpandMore,
+                        onClick = { dismissKeyboard(); subGenreExpanded = true },
+                    )
+                    DropdownMenu(expanded = subGenreExpanded, onDismissRequest = { subGenreExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.filter_all_sub_genres)) },
+                            onClick = {
+                                onSubGenreChange(null)
+                                subGenreExpanded = false
+                            },
+                        )
+                        subGenres.forEach { genre ->
+                            DropdownMenuItem(
+                                text = { Text(genre) },
+                                onClick = {
+                                    onSubGenreChange(genre)
+                                    subGenreExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
         item {
             Box {
                 MorphChip(
                     selected = state.filters.tag != null,
-                    label = state.filters.tag ?: stringResource(R.string.filter_genre),
+                    label = state.filters.tag ?: stringResource(R.string.filter_tags),
                     trailing = Icons.Outlined.ExpandMore,
-                    onClick = { dismissKeyboard(); genreExpanded = true },
+                    onClick = { dismissKeyboard(); tagsExpanded = true },
                 )
-                DropdownMenu(expanded = genreExpanded, onDismissRequest = { genreExpanded = false }) {
+                DropdownMenu(expanded = tagsExpanded, onDismissRequest = { tagsExpanded = false }) {
                     DropdownMenuItem(
-                        text = { Text(stringResource(R.string.filter_all_genres)) },
+                        text = { Text(stringResource(R.string.filter_all_tags)) },
                         onClick = {
                             onTagChange(null)
-                            genreExpanded = false
+                            tagsExpanded = false
                         },
                     )
                     tags.forEach { tag ->
@@ -1000,7 +1086,7 @@ private fun FilterStrip(
                             text = { Text(tag) },
                             onClick = {
                                 onTagChange(tag)
-                                genreExpanded = false
+                                tagsExpanded = false
                             },
                         )
                     }
@@ -2021,6 +2107,7 @@ private fun SettingsScreen(
     librarySettings: LibrarySettings,
     onOpenAppearance: () -> Unit,
     onOpenLibraryPreferences: () -> Unit,
+    onOpenGenreManagement: () -> Unit,
     onOpenDataRecovery: () -> Unit,
     onOpenPrivacyData: () -> Unit,
     onOpenHelpAbout: () -> Unit,
@@ -2037,6 +2124,10 @@ private fun SettingsScreen(
     onDefaultGridModeChange: (Boolean) -> Unit,
     onDefaultSortChange: (BookSortCode) -> Unit,
     onReadingGoalChange: (Int) -> Unit,
+    onAddMainGenre: (String) -> Unit,
+    onRemoveMainGenre: (String) -> Unit,
+    onAddSubGenre: (String) -> Unit,
+    onRemoveSubGenre: (String) -> Unit,
     onLoanRemindersEnabledChange: (Boolean) -> Unit,
     onLoanReminderLeadDaysChange: (Int) -> Unit,
     onBackupReminderDaysChange: (Int) -> Unit,
@@ -2067,6 +2158,7 @@ private fun SettingsScreen(
             librarySettings = librarySettings,
             onOpenAppearance = onOpenAppearance,
             onOpenLibraryPreferences = onOpenLibraryPreferences,
+            onOpenGenreManagement = onOpenGenreManagement,
             onOpenDataRecovery = onOpenDataRecovery,
             onOpenPrivacyData = onOpenPrivacyData,
             onOpenHelpAbout = onOpenHelpAbout,
@@ -2083,6 +2175,10 @@ private fun SettingsScreen(
             onDefaultGridModeChange = onDefaultGridModeChange,
             onDefaultSortChange = onDefaultSortChange,
             onReadingGoalChange = onReadingGoalChange,
+            onAddMainGenre = onAddMainGenre,
+            onRemoveMainGenre = onRemoveMainGenre,
+            onAddSubGenre = onAddSubGenre,
+            onRemoveSubGenre = onRemoveSubGenre,
             onLoanRemindersEnabledChange = onLoanRemindersEnabledChange,
             onLoanReminderLeadDaysChange = onLoanReminderLeadDaysChange,
             onBackupReminderDaysChange = onBackupReminderDaysChange,
@@ -2105,6 +2201,7 @@ private fun SettingsRouteContent(
     librarySettings: LibrarySettings,
     onOpenAppearance: () -> Unit,
     onOpenLibraryPreferences: () -> Unit,
+    onOpenGenreManagement: () -> Unit,
     onOpenDataRecovery: () -> Unit,
     onOpenPrivacyData: () -> Unit,
     onOpenHelpAbout: () -> Unit,
@@ -2121,6 +2218,10 @@ private fun SettingsRouteContent(
     onDefaultGridModeChange: (Boolean) -> Unit,
     onDefaultSortChange: (BookSortCode) -> Unit,
     onReadingGoalChange: (Int) -> Unit,
+    onAddMainGenre: (String) -> Unit,
+    onRemoveMainGenre: (String) -> Unit,
+    onAddSubGenre: (String) -> Unit,
+    onRemoveSubGenre: (String) -> Unit,
     onLoanRemindersEnabledChange: (Boolean) -> Unit,
     onLoanReminderLeadDaysChange: (Int) -> Unit,
     onBackupReminderDaysChange: (Int) -> Unit,
@@ -2155,6 +2256,17 @@ private fun SettingsRouteContent(
                 onDefaultGridModeChange = onDefaultGridModeChange,
                 onDefaultSortChange = onDefaultSortChange,
                 onReadingGoalChange = onReadingGoalChange,
+            )
+            return
+        }
+        SettingsRoute.GenreManagement -> {
+            GenreManagementScreen(
+                settings = librarySettings,
+                onBack = onBack,
+                onAddMainGenre = onAddMainGenre,
+                onRemoveMainGenre = onRemoveMainGenre,
+                onAddSubGenre = onAddSubGenre,
+                onRemoveSubGenre = onRemoveSubGenre,
             )
             return
         }
@@ -2204,6 +2316,14 @@ private fun SettingsRouteContent(
                     title = stringResource(R.string.settings_library_preferences),
                     body = stringResource(R.string.settings_library_preferences_subtitle),
                     onClick = onOpenLibraryPreferences,
+                )
+            }
+            item {
+                SettingsEntryCard(
+                    icon = Icons.Outlined.Category,
+                    title = stringResource(R.string.settings_genre_management_title),
+                    body = stringResource(R.string.settings_genre_management_subtitle),
+                    onClick = onOpenGenreManagement,
                 )
             }
             item {
@@ -2586,6 +2706,8 @@ private fun AddBookSheet(
     tagSuggestions: List<String>,
     seriesSuggestions: List<String>,
     locations: List<LocationEntity>,
+    mainGenreOptions: List<String>,
+    subGenreOptions: List<String>,
     lookupInProgress: Boolean,
     bulkProgress: Pair<Int, Int>? = null,
     onDismiss: () -> Unit,
@@ -2779,6 +2901,48 @@ private fun AddBookSheet(
                 }
             }
             RatingEditor(rating = draft.rating, onRatingChange = { draft = draft.copy(rating = it) })
+            Text(stringResource(R.string.section_classification).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            DropdownSelectField(
+                value = draft.mainGenre,
+                onValueChange = { draft = draft.copy(mainGenre = it) },
+                options = mainGenreOptions,
+                label = R.string.field_main_genre,
+            )
+            Text(stringResource(R.string.field_sub_genre), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                subGenreOptions.forEach { option ->
+                    MorphChip(
+                        selected = option in draft.subGenres,
+                        label = option,
+                        onClick = {
+                            draft = draft.copy(
+                                subGenres = if (option in draft.subGenres) draft.subGenres - option else draft.subGenres + option,
+                            )
+                        },
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MorphChip(
+                    selected = draft.bookType == "new",
+                    label = stringResource(R.string.book_type_new),
+                    onClick = { draft = draft.copy(bookType = "new") },
+                )
+                MorphChip(
+                    selected = draft.bookType == "used",
+                    label = stringResource(R.string.book_type_used),
+                    onClick = { draft = draft.copy(bookType = "used") },
+                )
+            }
+            TextFieldLine(draft.edition, { draft = draft.copy(edition = it) }, R.string.field_edition)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(stringResource(R.string.field_signed_copy), style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = draft.signedCopy, onCheckedChange = { draft = draft.copy(signedCopy = it) })
+            }
             Text(stringResource(R.string.section_ownership).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextFieldLine(
@@ -3481,6 +3645,18 @@ private fun BookDetailSheet(
                         MetadataChip(Icons.Outlined.CalendarToday, stringResource(R.string.purchased_on_label, it.displayDate(context)))
                     }
                     item.book.cost?.let { MetadataChip(Icons.Outlined.Payments, it.displayCost()) }
+                    item.book.mainGenre?.let { MetadataChip(Icons.Outlined.Category, it) }
+                    item.book.subGenres.forEach { MetadataChip(Icons.Outlined.Category, it) }
+                    item.book.bookType?.let {
+                        MetadataChip(
+                            Icons.Outlined.Sell,
+                            stringResource(if (it == "new") R.string.book_type_new else R.string.book_type_used),
+                        )
+                    }
+                    item.book.edition?.let { MetadataChip(Icons.Outlined.MenuBook, it) }
+                    if (item.book.signedCopy) {
+                        MetadataChip(Icons.Outlined.Draw, stringResource(R.string.field_signed_copy))
+                    }
                 }
                 LocationCard(item.location.displayBreadcrumb(context), onMove = onMove)
                 if (item.activeLoan != null) {

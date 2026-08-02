@@ -162,6 +162,11 @@ class BackupRepository(
         .put("purchaseDateEpochMillis", purchaseDateEpochMillis)
         .put("cost", cost)
         .put("seriesName", seriesName)
+        .put("mainGenre", mainGenre)
+        .put("subGenres", JSONArray(subGenres))
+        .put("bookType", bookType)
+        .put("edition", edition)
+        .put("signedCopy", signedCopy)
 
     private fun LocationEntity.toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -254,6 +259,11 @@ class BackupRepository(
                 purchaseDateEpochMillis = json.optNullableLong("purchaseDateEpochMillis"),
                 cost = json.optNullableDouble("cost"),
                 seriesName = json.optNullableString("seriesName"),
+                mainGenre = json.optNullableString("mainGenre"),
+                subGenres = json.optStringArray("subGenres"),
+                bookType = json.optNullableString("bookType"),
+                edition = json.optNullableString("edition"),
+                signedCopy = json.optBoolean("signedCopy"),
             )
         }
     }

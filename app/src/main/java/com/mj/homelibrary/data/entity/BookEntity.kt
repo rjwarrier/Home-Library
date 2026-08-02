@@ -1,5 +1,6 @@
 package com.mj.homelibrary.data.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -47,4 +48,9 @@ data class BookEntity(
     val purchaseDateEpochMillis: Long? = null,
     val cost: Double? = null,
     val seriesName: String? = null,
+    val mainGenre: String? = null,
+    @ColumnInfo(defaultValue = "[]") val subGenres: List<String> = emptyList(),
+    val bookType: String? = null,
+    val edition: String? = null,
+    @ColumnInfo(defaultValue = "0") val signedCopy: Boolean = false,
 )
