@@ -5,9 +5,11 @@ import androidx.work.Data
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.mj.homelibrary.data.dao.BookDao
+import com.mj.homelibrary.data.dao.BorrowerDao
 import com.mj.homelibrary.data.dao.LoanDao
 import com.mj.homelibrary.data.dao.LocationDao
 import com.mj.homelibrary.data.entity.BookEntity
+import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
 import com.mj.homelibrary.data.remote.BookLookupService
@@ -20,6 +22,7 @@ class HomeLibraryRepository(
     private val bookDao: BookDao,
     private val locationDao: LocationDao,
     private val loanDao: LoanDao,
+    private val borrowerDao: BorrowerDao,
     private val lookupService: BookLookupService,
     private val backupRepository: BackupRepository,
     private val coverCache: CoverCache,
@@ -27,6 +30,16 @@ class HomeLibraryRepository(
     val books: Flow<List<BookEntity>> = bookDao.observeBooks()
     val locations: Flow<List<LocationEntity>> = locationDao.observeLocations()
     val loans: Flow<List<LoanEntity>> = loanDao.observeLoans()
+    val borrowers: Flow<List<BorrowerEntity>> = borrowerDao.observeBorrowers()
+
+    suspend fun addBorrower(name: String, phone: String?, relation: String?): Long =
+        borrowerDao.insert(
+            BorrowerEntity(
+                name = name.trim(),
+                phone = phone?.trim()?.takeIf(String::isNotBlank),
+                relation = relation?.trim()?.takeIf(String::isNotBlank),
+            ),
+        )
 
     suspend fun lookupBook(isbn: String): Result<BookMetadata> = lookupService.lookup(isbn)
 
@@ -85,6 +98,7 @@ class HomeLibraryRepository(
 
     suspend fun loanBook(
         bookId: Long,
+        borrowerId: Long?,
         borrowerName: String,
         borrowerContact: String?,
         expectedReturnDateEpochMillis: Long?,
@@ -98,6 +112,7 @@ class HomeLibraryRepository(
         val loanId = loanDao.insert(
             LoanEntity(
                 bookId = bookId,
+                borrowerId = borrowerId,
                 borrowerName = borrowerName.trim(),
                 borrowerContact = borrowerContact?.trim()?.takeIf(String::isNotBlank),
                 expectedReturnDateEpochMillis = expectedReturnDateEpochMillis,

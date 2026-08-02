@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Base64
 import androidx.room.withTransaction
 import com.mj.homelibrary.data.entity.BookEntity
+import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,7 @@ class BackupRepository(
             .put(KEY_LOCATIONS, JSONArray(database.locationDao().getAll().map { it.toJson() }))
             .put(KEY_BOOKS, JSONArray(database.bookDao().getAll().map { it.toJson() }))
             .put(KEY_LOANS, JSONArray(database.loanDao().getAll().map { it.toJson() }))
+            .put(KEY_BORROWERS, JSONArray(database.borrowerDao().getAll().map { it.toJson() }))
         context.contentResolver.openOutputStream(uri)?.use { stream ->
             stream.writer().use { it.write(snapshot.toString(JSON_INDENT_SPACES)) }
         }
@@ -38,6 +40,7 @@ class BackupRepository(
             .put(KEY_LOCATIONS, JSONArray(database.locationDao().getAll().map { it.toJson() }))
             .put(KEY_BOOKS, JSONArray(books.map { it.toJson() }))
             .put(KEY_LOANS, JSONArray(database.loanDao().getAll().map { it.toJson() }))
+            .put(KEY_BORROWERS, JSONArray(database.borrowerDao().getAll().map { it.toJson() }))
             .put(KEY_COVER_IMAGES, JSONArray(books.mapNotNull { it.toCoverBackupJson() }))
         context.contentResolver.openOutputStream(uri)?.use { stream ->
             stream.writer().use { it.write(snapshot.toString(JSON_INDENT_SPACES)) }
@@ -77,12 +80,15 @@ class BackupRepository(
         val locations = snapshot.optJSONArray(KEY_LOCATIONS).toLocationList()
         val books = snapshot.optJSONArray(KEY_BOOKS).toBookList()
         val loans = snapshot.optJSONArray(KEY_LOANS).toLoanList()
+        val borrowers = snapshot.optJSONArray(KEY_BORROWERS).toBorrowerList()
         database.withTransaction {
             database.loanDao().clear()
             database.bookDao().clear()
             database.locationDao().clear()
+            database.borrowerDao().clear()
             database.locationDao().insertAll(locations)
             database.bookDao().insertAll(books)
+            database.borrowerDao().insertAll(borrowers)
             database.loanDao().insertAll(loans)
         }
     }
@@ -99,12 +105,15 @@ class BackupRepository(
             if (restoredCoverPath == null) book else book.copy(coverImagePath = restoredCoverPath)
         }
         val loans = snapshot.optJSONArray(KEY_LOANS).toLoanList()
+        val borrowers = snapshot.optJSONArray(KEY_BORROWERS).toBorrowerList()
         database.withTransaction {
             database.loanDao().clear()
             database.bookDao().clear()
             database.locationDao().clear()
+            database.borrowerDao().clear()
             database.locationDao().insertAll(locations)
             database.bookDao().insertAll(books)
+            database.borrowerDao().insertAll(borrowers)
             database.loanDao().insertAll(loans)
         }
     }
@@ -170,6 +179,14 @@ class BackupRepository(
         .put("expectedReturnDateEpochMillis", expectedReturnDateEpochMillis)
         .put("actualReturnDateEpochMillis", actualReturnDateEpochMillis)
         .put("notes", notes)
+        .put("borrowerId", borrowerId)
+
+    private fun BorrowerEntity.toJson(): JSONObject = JSONObject()
+        .put("id", id)
+        .put("name", name)
+        .put("phone", phone)
+        .put("relation", relation)
+        .put("createdAtEpochMillis", createdAtEpochMillis)
 
     private fun BookEntity.toCoverBackupJson(): JSONObject? {
         val imagePath = coverImagePath?.takeIf(String::isNotBlank) ?: return null
@@ -266,6 +283,20 @@ class BackupRepository(
                 expectedReturnDateEpochMillis = json.optNullableLong("expectedReturnDateEpochMillis"),
                 actualReturnDateEpochMillis = json.optNullableLong("actualReturnDateEpochMillis"),
                 notes = json.optNullableString("notes"),
+                borrowerId = json.optNullableLong("borrowerId"),
+            )
+        }
+    }
+
+    private fun JSONArray?.toBorrowerList(): List<BorrowerEntity> {
+        if (this == null) return emptyList()
+        return List(length()) { index -> optJSONObject(index) }.filterNotNull().map { json ->
+            BorrowerEntity(
+                id = json.optLong("id"),
+                name = json.optString("name"),
+                phone = json.optNullableString("phone"),
+                relation = json.optNullableString("relation"),
+                createdAtEpochMillis = json.optLong("createdAtEpochMillis", System.currentTimeMillis()),
             )
         }
     }
@@ -353,6 +384,7 @@ class BackupRepository(
         const val KEY_BOOKS = "books"
         const val KEY_LOCATIONS = "locations"
         const val KEY_LOANS = "loans"
+        const val KEY_BORROWERS = "borrowers"
         const val KEY_COVER_IMAGES = "coverImages"
         const val CSV_HEADER = "title,authors,language,isbn13,isbn10,publisher,published_year,tags,read_status,rating"
     }

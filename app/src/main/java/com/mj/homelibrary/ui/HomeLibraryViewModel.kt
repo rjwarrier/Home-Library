@@ -19,6 +19,7 @@ import com.mj.homelibrary.data.ReadStatusCode
 import com.mj.homelibrary.data.ThemeColorIntensity
 import com.mj.homelibrary.data.ThemePreference
 import com.mj.homelibrary.data.entity.BookEntity
+import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
 import com.mj.homelibrary.data.normalizedIsbn
@@ -57,13 +58,16 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         BackupReminderWorker.reschedule(WorkManager.getInstance(application), librarySettings.value.backupReminderDays)
     }
 
+    private val loanData = combine(repository.loans, repository.borrowers) { loans, borrowers -> LoanData(loans, borrowers) }
+
     val state: StateFlow<HomeLibraryUiState> = combine(
         repository.books,
         repository.locations,
-        repository.loans,
+        loanData,
         filters,
         transient,
-    ) { books, locations, loans, filters, transient ->
+    ) { books, locations, loanData, filters, transient ->
+        val (loans, borrowers) = loanData
         val activeLoans = loans.filter { it.actualReturnDateEpochMillis == null }
         val locationById = locations.associateBy { it.id }
         val activeLoanByBookId = activeLoans.associateBy { it.bookId }
@@ -82,6 +86,7 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
             locations = locations,
             loans = loans,
             activeLoans = activeLoans,
+            borrowers = borrowers,
             filters = filters,
             transient = transient,
             stats = LibraryStats.from(books, loans, activeLoans),
@@ -228,6 +233,14 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun addBorrower(name: String, phone: String, relation: String, onSaved: (Long) -> Unit) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val id = repository.addBorrower(name, phone.takeIf(String::isNotBlank), relation.takeIf(String::isNotBlank))
+            onSaved(id)
+        }
+    }
+
     fun updateBookRating(bookId: Long, rating: Float) {
         viewModelScope.launch {
             repository.updateBookRating(bookId, rating)
@@ -257,6 +270,7 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             repository.loanBook(
                 bookId = draft.bookId,
+                borrowerId = draft.borrowerId,
                 borrowerName = draft.borrowerName,
                 borrowerContact = draft.borrowerContact,
                 expectedReturnDateEpochMillis = draft.dueDate.toEpochMillisOrNull(),
@@ -341,10 +355,13 @@ data class HomeLibraryUiState(
     val locations: List<LocationEntity> = emptyList(),
     val loans: List<LoanEntity> = emptyList(),
     val activeLoans: List<LoanEntity> = emptyList(),
+    val borrowers: List<BorrowerEntity> = emptyList(),
     val filters: LibraryFilters = LibraryFilters(),
     val transient: TransientState = TransientState(),
     val stats: LibraryStats = LibraryStats(),
 )
+
+private data class LoanData(val loans: List<LoanEntity>, val borrowers: List<BorrowerEntity>)
 
 data class BookListItem(
     val book: BookEntity,
@@ -490,6 +507,7 @@ data class BookDraft(
 
 data class LoanDraft(
     val bookId: Long,
+    val borrowerId: Long? = null,
     val borrowerName: String = "",
     val borrowerContact: String = "",
     val dueDate: String = "",

@@ -70,6 +70,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AssignmentReturn
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.BarChart
@@ -201,6 +202,7 @@ import com.mj.homelibrary.data.ReadStatusCode
 import com.mj.homelibrary.data.ThemeColorIntensity
 import com.mj.homelibrary.data.ThemePreference
 import com.mj.homelibrary.data.entity.BookEntity
+import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
 import com.mj.homelibrary.data.validIsbnOrNull
@@ -269,8 +271,9 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     var deleteBook by remember { mutableStateOf<BookEntity?>(null) }
     var auditShelf by remember { mutableStateOf<LocationEntity?>(null) }
     var showAddShelf by remember { mutableStateOf(false) }
-    var showNewLoanPicker by remember { mutableStateOf(false) }
-    var loanBook by remember { mutableStateOf<BookEntity?>(null) }
+    var showNewLoanFlow by remember { mutableStateOf(false) }
+    var loanFlowBook by remember { mutableStateOf<BookEntity?>(null) }
+    var showAddPerson by remember { mutableStateOf(false) }
     var returnLoan by remember { mutableStateOf<LoanEntity?>(null) }
     var bulkQueue by remember { mutableStateOf<List<String>>(emptyList()) }
     var bulkIndex by remember { mutableStateOf(0) }
@@ -380,10 +383,18 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                         onClick = { showAddShelf = true },
                     )
 
-                    HomeTab.Loans -> ScreenFab(
-                        icon = Icons.Outlined.PersonAdd,
-                        label = stringResource(R.string.action_new_loan),
-                        onClick = { showNewLoanPicker = true },
+                    HomeTab.Loans -> LoansFabMenu(
+                        expanded = fabExpanded,
+                        placement = appearanceSettings.fabPlacement,
+                        onToggle = { fabExpanded = !fabExpanded },
+                        onAddPerson = {
+                            fabExpanded = false
+                            showAddPerson = true
+                        },
+                        onAddLoan = {
+                            fabExpanded = false
+                            showNewLoanFlow = true
+                        },
                     )
 
                     else -> Unit
@@ -422,7 +433,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                         if (item.isOnLoan) {
                             item.activeLoan?.let { returnLoan = it }
                         } else {
-                            loanBook = item.book
+                            loanFlowBook = item.book
                         }
                     },
                 )
@@ -435,7 +446,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                 )
                 HomeTab.Loans -> LoansScreen(
                     state = state,
-                    onNewLoan = { showNewLoanPicker = true },
+                    onNewLoan = { showNewLoanFlow = true },
                     onReturn = { returnLoan = it },
                     onBookClick = { selectedBook = it },
                 )
@@ -580,7 +591,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             item = item,
             loans = state.loans.filter { it.bookId == item.book.id },
             onDismiss = { selectedBook = null },
-            onLoan = { loanBook = item.book },
+            onLoan = { loanFlowBook = item.book },
             onReturn = { returnLoan = it },
             onEdit = { editBook = item },
             onMove = { moveBook = item },
@@ -637,9 +648,18 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
         )
     }
 
-    if (showNewLoanPicker) {
-        NewLoanPickerSheet(
-            items = state.allBooks
+    if (showAddPerson) {
+        AddPersonSheet(
+            onDismiss = { showAddPerson = false },
+            onSave = { name, phone, relation ->
+                viewModel.addBorrower(name, phone, relation) { showAddPerson = false }
+            },
+        )
+    }
+
+    if (showNewLoanFlow || loanFlowBook != null) {
+        val availableBooks = remember(state.allBooks, state.locations, state.activeLoans) {
+            state.allBooks
                 .map { book ->
                     BookListItem(
                         book = book,
@@ -647,20 +667,20 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                         activeLoan = state.activeLoans.firstOrNull { it.bookId == book.id },
                     )
                 }
-                .filterNot { it.isOnLoan },
-            onDismiss = { showNewLoanPicker = false },
-            onSelect = {
-                loanBook = it.book
-                showNewLoanPicker = false
+                .filterNot { it.isOnLoan }
+        }
+        NewLoanFlowSheet(
+            preselectedBook = loanFlowBook,
+            availableBooks = availableBooks,
+            borrowers = state.borrowers,
+            onDismiss = { showNewLoanFlow = false; loanFlowBook = null },
+            onAddPersonRequest = { showAddPerson = true },
+            onSave = { draft ->
+                viewModel.loanBook(draft) {
+                    showNewLoanFlow = false
+                    loanFlowBook = null
+                }
             },
-        )
-    }
-
-    loanBook?.let { book ->
-        LoanBookSheet(
-            book = book,
-            onDismiss = { loanBook = null },
-            onSave = { draft -> viewModel.loanBook(draft) { loanBook = null } },
         )
     }
 
@@ -2407,6 +2427,49 @@ private fun GranthapuraFabMenu(
 }
 
 @Composable
+private fun LoansFabMenu(
+    expanded: Boolean,
+    placement: FabPlacement,
+    onToggle: () -> Unit,
+    onAddPerson: () -> Unit,
+    onAddLoan: () -> Unit,
+) {
+    val rotation by animateFloatAsState(if (expanded) 45f else 0f, label = "loansFabRotation")
+    val alignment = if (placement == FabPlacement.LEFT) Alignment.Start else Alignment.End
+    Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(spring()) + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+        ) {
+            Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                StaggeredFabMenuItem(index = 0, expanded = expanded) {
+                    FabMenuItem(icon = Icons.Outlined.PersonAdd, label = stringResource(R.string.action_add_person), placement = placement, onClick = onAddPerson)
+                }
+                StaggeredFabMenuItem(index = 1, expanded = expanded) {
+                    FabMenuItem(icon = Icons.Outlined.Outbound, label = stringResource(R.string.action_new_loan), placement = placement, onClick = onAddLoan)
+                }
+            }
+        }
+        val fabInteractionSource = remember { MutableInteractionSource() }
+        val fabPressScale by rememberPressScale(fabInteractionSource)
+        FloatingActionButton(
+            onClick = onToggle,
+            interactionSource = fabInteractionSource,
+            modifier = Modifier
+                .size(dimensionResource(R.dimen.fab_size))
+                .scale(fabPressScale)
+                .shadow(10.dp, RoundedCornerShape(if (expanded) 28.dp else 20.dp)),
+            shape = RoundedCornerShape(if (expanded) 28.dp else 20.dp),
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ) {
+            Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.action_new_loan), modifier = Modifier.rotate(rotation).size(30.dp))
+        }
+    }
+}
+
+@Composable
 private fun ScreenFab(icon: ImageVector, label: String, onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressScale by rememberPressScale(interactionSource)
@@ -3435,10 +3498,15 @@ private fun RatingRow(rating: Float, onRatingChange: ((Float) -> Unit)? = null) 
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun LoanBookSheet(book: BookEntity, onDismiss: () -> Unit, onSave: (LoanDraft) -> Unit) {
-    var draft by remember { mutableStateOf(LoanDraft(bookId = book.id)) }
+private fun AddPersonSheet(
+    onDismiss: () -> Unit,
+    onSave: (name: String, phone: String, relation: String) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
+    var relation by remember { mutableStateOf("") }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
@@ -3448,25 +3516,32 @@ private fun LoanBookSheet(book: BookEntity, onDismiss: () -> Unit, onSave: (Loan
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.loan_this_book), style = MaterialTheme.typography.headlineSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                BookCover(book, Modifier.width(44.dp).height(66.dp), titleSize = 8)
-                Column {
-                    Text(book.title, fontWeight = FontWeight.Medium)
-                    Text(book.authors.displayAuthors(LocalContext.current), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.add_person_title), style = MaterialTheme.typography.headlineSmall)
+            Text(stringResource(R.string.add_person_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextFieldLine(name, { name = it }, R.string.field_person_name)
+            TextFieldLine(phone, { phone = it }, R.string.field_person_phone)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    stringResource(R.string.relation_family),
+                    stringResource(R.string.relation_friend),
+                    stringResource(R.string.relation_colleague),
+                    stringResource(R.string.relation_neighbor),
+                ).forEach { option ->
+                    MorphChip(selected = relation == option, label = option, onClick = { relation = option })
                 }
             }
-            TextFieldLine(draft.borrowerName, { draft = draft.copy(borrowerName = it) }, R.string.field_borrower_name)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextFieldLine(draft.borrowerContact, { draft = draft.copy(borrowerContact = it) }, R.string.field_borrower_contact, Modifier.weight(1f))
-                TextFieldLine(draft.dueDate, { draft = draft.copy(dueDate = it) }, R.string.field_due_date, Modifier.weight(1f), monospace = true)
-            }
+            TextFieldLine(relation, { relation = it }, R.string.field_person_relation)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
                     Text(stringResource(R.string.action_cancel))
                 }
-                Button(onClick = { onSave(draft) }, modifier = Modifier.weight(1.4f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
-                    Text(stringResource(R.string.action_loan_book))
+                Button(
+                    onClick = { onSave(name, phone, relation) },
+                    enabled = name.isNotBlank(),
+                    modifier = Modifier.weight(1.4f).height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text(stringResource(R.string.action_save_person))
                 }
             }
             Spacer(Modifier.height(20.dp))
@@ -3566,43 +3641,198 @@ private fun ShelfAuditSheet(
     }
 }
 
+private enum class LoanFlowStep { SelectBorrower, SelectBook, Confirm }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NewLoanPickerSheet(
-    items: List<BookListItem>,
+private fun NewLoanFlowSheet(
+    preselectedBook: BookEntity?,
+    availableBooks: List<BookListItem>,
+    borrowers: List<BorrowerEntity>,
     onDismiss: () -> Unit,
-    onSelect: (BookListItem) -> Unit,
+    onAddPersonRequest: () -> Unit,
+    onSave: (LoanDraft) -> Unit,
 ) {
+    var step by remember { mutableStateOf(LoanFlowStep.SelectBorrower) }
+    var selectedBorrower by remember { mutableStateOf<BorrowerEntity?>(null) }
+    var selectedBook by remember(preselectedBook) { mutableStateOf(preselectedBook) }
+    var dueDate by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") }
     val context = LocalContext.current
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            modifier = Modifier
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .heightIn(max = 640.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.action_new_loan), style = MaterialTheme.typography.headlineSmall)
-            if (items.isEmpty()) {
-                Text(stringResource(R.string.no_available_books), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(items, key = { it.book.id }) { item ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onSelect(item) }.padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            BookCover(item.book, Modifier.width(40.dp).height(60.dp), titleSize = 7)
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(item.book.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(item.book.authors.displayAuthors(context), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            when (step) {
+                LoanFlowStep.SelectBorrower -> {
+                    Text(stringResource(R.string.new_loan_step_borrower_title), style = MaterialTheme.typography.headlineSmall)
+                    if (borrowers.isEmpty()) {
+                        Text(
+                            stringResource(R.string.new_loan_no_people_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(onClick = onAddPersonRequest, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp)) {
+                            Icon(Icons.Outlined.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.action_add_person))
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.heightIn(max = 380.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(borrowers, key = { it.id }) { borrower ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .clickable {
+                                            selectedBorrower = borrower
+                                            step = if (selectedBook != null) LoanFlowStep.Confirm else LoanFlowStep.SelectBook
+                                        }
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Avatar(borrower.name, size = 40.dp)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(borrower.name, fontWeight = FontWeight.Medium)
+                                        val subtitle = listOfNotNull(borrower.relation, borrower.phone).joinToString(" · ")
+                                        if (subtitle.isNotBlank()) {
+                                            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
                             }
-                            Icon(Icons.Outlined.Outbound, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                        TextButton(onClick = onAddPersonRequest) {
+                            Icon(Icons.Outlined.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.action_add_person))
+                        }
+                    }
+                }
+
+                LoanFlowStep.SelectBook -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { step = LoanFlowStep.SelectBorrower }) {
+                            Icon(Icons.Outlined.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                        }
+                        Text(stringResource(R.string.new_loan_step_book_title), style = MaterialTheme.typography.headlineSmall)
+                    }
+                    var query by remember { mutableStateOf("") }
+                    TextFieldLine(query, { query = it }, R.string.new_loan_book_search_hint)
+                    val filtered = remember(query, availableBooks) {
+                        if (query.isBlank()) {
+                            availableBooks
+                        } else {
+                            availableBooks.filter { item ->
+                                item.book.title.contains(query, ignoreCase = true) ||
+                                    item.book.authors.any { it.contains(query, ignoreCase = true) }
+                            }
+                        }
+                    }
+                    if (filtered.isEmpty()) {
+                        Text(stringResource(R.string.no_available_books), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        LazyColumn(modifier = Modifier.heightIn(max = 340.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(filtered, key = { it.book.id }) { item ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .clickable {
+                                            selectedBook = item.book
+                                            step = LoanFlowStep.Confirm
+                                        }
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    BookCover(item.book, Modifier.width(40.dp).height(60.dp), titleSize = 7)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(item.book.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            item.book.authors.displayAuthors(context),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                LoanFlowStep.Confirm -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (preselectedBook == null) {
+                            IconButton(onClick = { step = LoanFlowStep.SelectBook }) {
+                                Icon(Icons.Outlined.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                            }
+                        }
+                        Text(stringResource(R.string.loan_this_book), style = MaterialTheme.typography.headlineSmall)
+                    }
+                    selectedBook?.let { book ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            BookCover(book, Modifier.width(44.dp).height(66.dp), titleSize = 8)
+                            Column {
+                                Text(book.title, fontWeight = FontWeight.Medium)
+                                Text(book.authors.displayAuthors(context), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    selectedBorrower?.let { borrower ->
+                        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Avatar(borrower.name, size = 34.dp)
+                                Text(borrower.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { step = LoanFlowStep.SelectBorrower }) {
+                                    Text(stringResource(R.string.action_change))
+                                }
+                            }
+                        }
+                    }
+                    TextFieldLine(dueDate, { dueDate = it }, R.string.field_due_date, monospace = true, placeholder = R.string.date_format_hint)
+                    TextFieldLine(notes, { notes = it }, R.string.field_notes)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                            Text(stringResource(R.string.action_cancel))
+                        }
+                        Button(
+                            onClick = {
+                                val borrower = selectedBorrower
+                                val book = selectedBook
+                                if (borrower != null && book != null) {
+                                    onSave(
+                                        LoanDraft(
+                                            bookId = book.id,
+                                            borrowerId = borrower.id,
+                                            borrowerName = borrower.name,
+                                            borrowerContact = borrower.phone.orEmpty(),
+                                            dueDate = dueDate,
+                                            notes = notes,
+                                        ),
+                                    )
+                                }
+                            },
+                            enabled = selectedBorrower != null && selectedBook != null,
+                            modifier = Modifier.weight(1.4f).height(52.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Text(stringResource(R.string.action_loan_book))
                         }
                     }
                 }

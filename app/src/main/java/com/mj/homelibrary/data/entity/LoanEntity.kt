@@ -30,4 +30,5 @@ data class LoanEntity(
     val expectedReturnDateEpochMillis: Long? = null,
     val actualReturnDateEpochMillis: Long? = null,
     val notes: String? = null,
+    val borrowerId: Long? = null,
 )

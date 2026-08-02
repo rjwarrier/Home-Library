@@ -23,6 +23,7 @@ class HomeLibraryApplication : Application(), ImageLoaderFactory {
             bookDao = database.bookDao(),
             locationDao = database.locationDao(),
             loanDao = database.loanDao(),
+            borrowerDao = database.borrowerDao(),
             lookupService = BookLookupService(this),
             backupRepository = BackupRepository(this, database),
             coverCache = CoverCache(this),
