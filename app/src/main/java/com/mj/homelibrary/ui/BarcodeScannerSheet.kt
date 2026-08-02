@@ -108,7 +108,7 @@ fun BarcodeScannerSheet(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
         )
     }
-    var bulkScan by remember { mutableStateOf(true) }
+    var bulkScan by remember { mutableStateOf(false) }
     var torchOn by remember { mutableStateOf(false) }
     val scannedQueue = remember { mutableStateListOf<String>() }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
