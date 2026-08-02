@@ -155,6 +155,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -210,6 +211,9 @@ import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
 import com.mj.homelibrary.data.validIsbnOrNull
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Year
 import java.io.File
 import kotlin.math.absoluteValue
@@ -3139,6 +3143,9 @@ private fun CoverEditor(
 private val CropFrameWidth = 190.dp
 private val CropFrameHeight = 285.dp
 private const val CropMaxScale = 4f
+private const val CoverOutputWidthPx = 800
+private const val CoverOutputHeightPx = 1200
+private const val CoverDecodeMaxDimensionPx = 2400
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -3150,15 +3157,17 @@ private fun CropCoverSheet(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+    val coroutineScope = rememberCoroutineScope()
     var scale by remember(imageUri) { mutableStateOf(1f) }
     var offset by remember(imageUri) { mutableStateOf(Offset.Zero) }
+    var cropInProgress by remember(imageUri) { mutableStateOf(false) }
     val frameWidthPx = with(density) { CropFrameWidth.toPx() }
     val frameHeightPx = with(density) { CropFrameHeight.toPx() }
     val scaleAnim by animateFloatAsState(scale, label = "cropScale")
     val offsetAnim by animateOffsetAsState(offset, label = "cropOffset")
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!cropInProgress) onDismiss() },
         shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
@@ -3223,17 +3232,37 @@ private fun CropCoverSheet(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onUseOriginal, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                OutlinedButton(
+                    onClick = onUseOriginal,
+                    enabled = !cropInProgress,
+                    modifier = Modifier.weight(1f).height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
                     Text(stringResource(R.string.action_use_original))
                 }
                 Button(
                     onClick = {
-                        onUseCropped(saveCroppedCover(context, imageUri, scale, offset, frameWidthPx, frameHeightPx))
+                        if (!cropInProgress) {
+                            cropInProgress = true
+                            coroutineScope.launch {
+                                val croppedPath = saveCroppedCover(context, imageUri, scale, offset, frameWidthPx, frameHeightPx)
+                                cropInProgress = false
+                                onUseCropped(croppedPath)
+                            }
+                        }
                     },
+                    enabled = !cropInProgress,
                     modifier = Modifier.weight(1.25f).height(52.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text(stringResource(R.string.action_use_cropped))
+                    if (cropInProgress) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Text(stringResource(R.string.action_use_cropped))
+                    }
                 }
             }
             Spacer(Modifier.height(20.dp))
@@ -3241,48 +3270,87 @@ private fun CropCoverSheet(
     }
 }
 
-private fun saveCroppedCover(
+private suspend fun saveCroppedCover(
     context: Context,
     uri: Uri,
     userScale: Float,
     userOffsetPx: Offset,
     frameWidthPx: Float,
     frameHeightPx: Float,
-): String? =
+): String? = withContext(Dispatchers.IO) {
     runCatching {
-        val source = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val imageSource = ImageDecoder.createSource(context.contentResolver, uri)
-            ImageDecoder.decodeBitmap(imageSource) { decoder, _, _ ->
-                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        val source = decodeCoverBitmap(context, uri) ?: return@runCatching null
+        var cropped: Bitmap? = null
+        var outputBitmap: Bitmap? = null
+        try {
+            val baseScale = max(frameWidthPx / source.width, frameHeightPx / source.height)
+            val totalScale = baseScale * userScale
+            val displayedWidth = source.width * totalScale
+            val displayedHeight = source.height * totalScale
+
+            val srcWidth = frameWidthPx / totalScale
+            val srcHeight = frameHeightPx / totalScale
+            val srcX = ((displayedWidth / 2f - userOffsetPx.x - frameWidthPx / 2f) / totalScale)
+                .coerceIn(0f, (source.width - srcWidth).coerceAtLeast(0f))
+            val srcY = ((displayedHeight / 2f - userOffsetPx.y - frameHeightPx / 2f) / totalScale)
+                .coerceIn(0f, (source.height - srcHeight).coerceAtLeast(0f))
+
+            val srcXInt = srcX.roundToInt().coerceIn(0, source.width - 1)
+            val srcYInt = srcY.roundToInt().coerceIn(0, source.height - 1)
+            val cropWidth = srcWidth.roundToInt().coerceIn(1, source.width - srcXInt)
+            val cropHeight = srcHeight.roundToInt().coerceIn(1, source.height - srcYInt)
+            val croppedBitmap = Bitmap.createBitmap(source, srcXInt, srcYInt, cropWidth, cropHeight)
+            cropped = croppedBitmap
+            val resizedBitmap = Bitmap.createScaledBitmap(croppedBitmap, CoverOutputWidthPx, CoverOutputHeightPx, true)
+            outputBitmap = resizedBitmap
+
+            val directory = File(context.filesDir, "covers").also { it.mkdirs() }
+            val file = File(directory, "custom-cover-${System.currentTimeMillis()}.jpg")
+            try {
+                file.outputStream().use { output ->
+                    check(resizedBitmap.compress(Bitmap.CompressFormat.JPEG, 90, output))
+                }
+                file.absolutePath
+            } catch (error: Throwable) {
+                file.delete()
+                throw error
             }
-        } else {
-            context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
-        } ?: return@runCatching null
-
-        val baseScale = max(frameWidthPx / source.width, frameHeightPx / source.height)
-        val totalScale = baseScale * userScale
-        val displayedWidth = source.width * totalScale
-        val displayedHeight = source.height * totalScale
-
-        val srcWidth = (frameWidthPx / totalScale)
-        val srcHeight = (frameHeightPx / totalScale)
-        val srcX = ((displayedWidth / 2f - userOffsetPx.x - frameWidthPx / 2f) / totalScale)
-            .coerceIn(0f, (source.width - srcWidth).coerceAtLeast(0f))
-        val srcY = ((displayedHeight / 2f - userOffsetPx.y - frameHeightPx / 2f) / totalScale)
-            .coerceIn(0f, (source.height - srcHeight).coerceAtLeast(0f))
-
-        val cropWidth = srcWidth.roundToInt().coerceIn(1, source.width - srcX.roundToInt())
-        val cropHeight = srcHeight.roundToInt().coerceIn(1, source.height - srcY.roundToInt())
-        val cropped = Bitmap.createBitmap(source, srcX.roundToInt(), srcY.roundToInt(), cropWidth, cropHeight)
-        val directory = File(context.filesDir, "covers").also { it.mkdirs() }
-        val file = File(directory, "custom-cover-${System.currentTimeMillis()}.jpg")
-        file.outputStream().use { output ->
-            cropped.compress(Bitmap.CompressFormat.JPEG, 92, output)
+        } finally {
+            outputBitmap?.takeIf { it !== cropped && !it.isRecycled }?.recycle()
+            cropped?.takeIf { it !== source && !it.isRecycled }?.recycle()
+            if (!source.isRecycled) source.recycle()
         }
-        if (cropped != source) cropped.recycle()
-        source.recycle()
-        file.absolutePath
     }.getOrNull()
+}
+
+private fun decodeCoverBitmap(context: Context, uri: Uri): Bitmap? {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val imageSource = ImageDecoder.createSource(context.contentResolver, uri)
+        ImageDecoder.decodeBitmap(imageSource) { decoder, info, _ ->
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            val sourceWidth = info.size.width
+            val sourceHeight = info.size.height
+            val largestDimension = max(sourceWidth, sourceHeight)
+            if (largestDimension > CoverDecodeMaxDimensionPx) {
+                val sampleScale = CoverDecodeMaxDimensionPx / largestDimension.toFloat()
+                decoder.setTargetSize(
+                    (sourceWidth * sampleScale).roundToInt().coerceAtLeast(1),
+                    (sourceHeight * sampleScale).roundToInt().coerceAtLeast(1),
+                )
+            }
+        }
+    } else {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sampleSize = 1
+        while (max(bounds.outWidth, bounds.outHeight) / sampleSize > CoverDecodeMaxDimensionPx) {
+            sampleSize *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
