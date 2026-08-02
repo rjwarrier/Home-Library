@@ -92,6 +92,9 @@
     <string name="field_authors">Authors</string>
     <string name="field_language">Language</string>
     <string name="field_original_title">Original-script title</string>
+    <string name="field_title_in_language">Title in %1$s</string>
+    <string name="settings_primary_language_title">Primary language</string>
+    <string name="settings_primary_language_body">Titles are entered in this language by default. Books in a different language get an extra field for the title in that language.</string>
     <string name="field_tags">Genres and tags</string>
     <string name="field_isbn">ISBN</string>
     <string name="field_publisher">Publisher</string>

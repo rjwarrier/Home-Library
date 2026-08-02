@@ -207,6 +207,10 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         librarySettingsRepository.setReadingGoal(goal)
     }
 
+    fun setPrimaryLanguage(languageCode: String) {
+        librarySettingsRepository.setPrimaryLanguage(languageCode)
+    }
+
     fun addMainGenre(name: String) = librarySettingsRepository.addMainGenre(name)
 
     fun removeMainGenre(name: String) = librarySettingsRepository.removeMainGenre(name)

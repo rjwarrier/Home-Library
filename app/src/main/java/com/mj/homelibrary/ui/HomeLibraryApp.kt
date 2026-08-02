@@ -487,6 +487,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                     onDefaultGridModeChange = viewModel::setGridMode,
                     onDefaultSortChange = viewModel::setSort,
                     onReadingGoalChange = viewModel::setReadingGoal,
+                    onPrimaryLanguageChange = viewModel::setPrimaryLanguage,
                     onAddMainGenre = viewModel::addMainGenre,
                     onRemoveMainGenre = viewModel::removeMainGenre,
                     onAddSubGenre = viewModel::addSubGenre,
@@ -551,6 +552,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             locations = state.locations,
             mainGenreOptions = librarySettings.mainGenres,
             subGenreOptions = librarySettings.subGenres,
+            primaryLanguage = librarySettings.primaryLanguage,
             lookupInProgress = state.transient.lookupInProgress,
             savingInProgress = state.transient.savingBookInProgress,
             bulkProgress = bulkProgress,
@@ -581,6 +583,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             locations = state.locations,
             mainGenreOptions = librarySettings.mainGenres,
             subGenreOptions = librarySettings.subGenres,
+            primaryLanguage = librarySettings.primaryLanguage,
             lookupInProgress = state.transient.lookupInProgress,
             savingInProgress = state.transient.savingBookInProgress,
             bulkProgress = bulkProgress.takeIf { enrichFromScan },
@@ -1253,6 +1256,15 @@ private fun BookGridCard(item: BookListItem, modifier: Modifier = Modifier, onCl
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        item.book.originalScriptTitle?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Text(
             text = item.book.authors.displayAuthors(context),
             style = MaterialTheme.typography.labelSmall,
@@ -1334,6 +1346,15 @@ private fun BookListRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    item.book.originalScriptTitle?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Text(
                         text = item.book.authors.displayAuthors(context),
                         style = MaterialTheme.typography.bodySmall,
@@ -2128,6 +2149,7 @@ private fun SettingsScreen(
     onDefaultGridModeChange: (Boolean) -> Unit,
     onDefaultSortChange: (BookSortCode) -> Unit,
     onReadingGoalChange: (Int) -> Unit,
+    onPrimaryLanguageChange: (String) -> Unit,
     onAddMainGenre: (String) -> Unit,
     onRemoveMainGenre: (String) -> Unit,
     onAddSubGenre: (String) -> Unit,
@@ -2179,6 +2201,7 @@ private fun SettingsScreen(
             onDefaultGridModeChange = onDefaultGridModeChange,
             onDefaultSortChange = onDefaultSortChange,
             onReadingGoalChange = onReadingGoalChange,
+            onPrimaryLanguageChange = onPrimaryLanguageChange,
             onAddMainGenre = onAddMainGenre,
             onRemoveMainGenre = onRemoveMainGenre,
             onAddSubGenre = onAddSubGenre,
@@ -2222,6 +2245,7 @@ private fun SettingsRouteContent(
     onDefaultGridModeChange: (Boolean) -> Unit,
     onDefaultSortChange: (BookSortCode) -> Unit,
     onReadingGoalChange: (Int) -> Unit,
+    onPrimaryLanguageChange: (String) -> Unit,
     onAddMainGenre: (String) -> Unit,
     onRemoveMainGenre: (String) -> Unit,
     onAddSubGenre: (String) -> Unit,
@@ -2260,6 +2284,7 @@ private fun SettingsRouteContent(
                 onDefaultGridModeChange = onDefaultGridModeChange,
                 onDefaultSortChange = onDefaultSortChange,
                 onReadingGoalChange = onReadingGoalChange,
+                onPrimaryLanguageChange = onPrimaryLanguageChange,
             )
             return
         }
@@ -2712,6 +2737,7 @@ private fun AddBookSheet(
     locations: List<LocationEntity>,
     mainGenreOptions: List<String>,
     subGenreOptions: List<String>,
+    primaryLanguage: String,
     lookupInProgress: Boolean,
     savingInProgress: Boolean,
     bulkProgress: Pair<Int, Int>? = null,
@@ -2881,7 +2907,6 @@ private fun AddBookSheet(
             }
             Text(stringResource(R.string.section_metadata).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextFieldLine(draft.title, { draft = draft.copy(title = it) }, R.string.field_title)
-            TextFieldLine(draft.originalScriptTitle, { draft = draft.copy(originalScriptTitle = it) }, R.string.field_original_title)
             SuggestedTextFieldLine(
                 value = draft.seriesName,
                 onValueChange = { draft = draft.copy(seriesName = it) },
@@ -2915,6 +2940,13 @@ private fun AddBookSheet(
                         onClick = { draft = draft.copy(languageCode = language.code) },
                     )
                 }
+            }
+            if (draft.languageCode != primaryLanguage) {
+                TextFieldLineText(
+                    value = draft.originalScriptTitle,
+                    onValueChange = { draft = draft.copy(originalScriptTitle = it) },
+                    label = stringResource(R.string.field_title_in_language, languageLabel(LocalContext.current, draft.languageCode)),
+                )
             }
             RatingEditor(rating = draft.rating, onRatingChange = { draft = draft.copy(rating = it) })
             Text(stringResource(R.string.section_classification).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -3538,6 +3570,28 @@ private fun TextFieldLine(
         minLines = if (singleLine) 1 else 3,
         shape = RoundedCornerShape(14.dp),
         textStyle = if (monospace) MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace) else MaterialTheme.typography.bodyMedium,
+        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    )
+}
+
+@Composable
+private fun TextFieldLineText(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        modifier = modifier.fillMaxWidth(),
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        singleLine = true,
+        shape = RoundedCornerShape(14.dp),
+        textStyle = MaterialTheme.typography.bodyMedium,
         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,

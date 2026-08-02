@@ -16,6 +16,7 @@ data class LibrarySettings(
     val readingGoal: Int = 24,
     val mainGenres: List<String> = DEFAULT_MAIN_GENRES,
     val subGenres: List<String> = DEFAULT_SUB_GENRES,
+    val primaryLanguage: String = LanguageCode.English.code,
 ) {
     companion object {
         val DEFAULT_MAIN_GENRES = listOf("Fiction", "Non-Fiction")
@@ -68,6 +69,11 @@ class LibrarySettingsRepository(context: Context) {
         refresh()
     }
 
+    fun setPrimaryLanguage(languageCode: String) {
+        prefs.edit().putString(KEY_PRIMARY_LANGUAGE, languageCode).apply()
+        refresh()
+    }
+
     fun addMainGenre(name: String) {
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
@@ -115,6 +121,7 @@ class LibrarySettingsRepository(context: Context) {
             readingGoal = prefs.getInt(KEY_READING_GOAL, 24).coerceIn(1, 365),
             mainGenres = readStringList(KEY_MAIN_GENRES, LibrarySettings.DEFAULT_MAIN_GENRES),
             subGenres = readStringList(KEY_SUB_GENRES, LibrarySettings.DEFAULT_SUB_GENRES),
+            primaryLanguage = prefs.getString(KEY_PRIMARY_LANGUAGE, null) ?: LanguageCode.English.code,
         )
 
     private fun readStringList(key: String, fallback: List<String>): List<String> {
@@ -145,5 +152,6 @@ class LibrarySettingsRepository(context: Context) {
         const val KEY_READING_GOAL = "reading_goal"
         const val KEY_MAIN_GENRES = "main_genres"
         const val KEY_SUB_GENRES = "sub_genres"
+        const val KEY_PRIMARY_LANGUAGE = "primary_language"
     }
 }

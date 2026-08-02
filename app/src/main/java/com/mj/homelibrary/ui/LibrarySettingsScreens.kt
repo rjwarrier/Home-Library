@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Sort
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mj.homelibrary.R
 import com.mj.homelibrary.data.BookSortCode
+import com.mj.homelibrary.data.LanguageCode
 import com.mj.homelibrary.data.LibrarySettings
 import kotlin.math.roundToInt
 
@@ -71,6 +73,7 @@ fun LibraryPreferencesScreen(
     onDefaultGridModeChange: (Boolean) -> Unit,
     onDefaultSortChange: (BookSortCode) -> Unit,
     onReadingGoalChange: (Int) -> Unit,
+    onPrimaryLanguageChange: (String) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -80,6 +83,24 @@ fun LibraryPreferencesScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item { SettingsSubscreenHeader(titleRes = R.string.settings_library_preferences, onBack = onBack) }
+        item {
+            SettingsControlCard(icon = Icons.Outlined.Translate, titleRes = R.string.settings_primary_language_title) {
+                Text(
+                    text = stringResource(R.string.settings_primary_language_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LanguageCode.entries.forEach { language ->
+                        FilterChip(
+                            selected = settings.primaryLanguage == language.code,
+                            onClick = { onPrimaryLanguageChange(language.code) },
+                            label = { Text(stringResource(language.labelRes)) },
+                        )
+                    }
+                }
+            }
+        }
         item {
             SettingsControlCard(icon = Icons.Outlined.GridView, titleRes = R.string.settings_default_library_view) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
