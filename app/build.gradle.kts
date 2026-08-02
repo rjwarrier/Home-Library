@@ -33,6 +33,17 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
+    }
 }
 
 kotlin {
@@ -41,7 +52,7 @@ kotlin {
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
-    arg("room.incremental", "false")
+    arg("room.incremental", "true")
 }
 
 dependencies {
