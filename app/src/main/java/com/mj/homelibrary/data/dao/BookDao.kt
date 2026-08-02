@@ -15,9 +15,6 @@ interface BookDao {
     fun observeBooks(): Flow<List<BookEntity>>
 
     @Query("SELECT * FROM books WHERE id = :id")
-    fun observeBook(id: Long): Flow<BookEntity?>
-
-    @Query("SELECT * FROM books WHERE id = :id")
     suspend fun get(id: Long): BookEntity?
 
     @Query("SELECT * FROM books WHERE isbn10 = :isbn OR isbn13 = :isbn LIMIT 1")
@@ -34,6 +31,15 @@ interface BookDao {
 
     @Update
     suspend fun update(book: BookEntity)
+
+    @Query("UPDATE books SET locationId = :locationId WHERE id IN (:bookIds)")
+    suspend fun updateLocations(bookIds: Set<Long>, locationId: Long)
+
+    @Query("UPDATE books SET locationId = :locationId, positionNote = :positionNote WHERE id = :bookId")
+    suspend fun updateLocation(bookId: Long, locationId: Long, positionNote: String?)
+
+    @Query("UPDATE books SET rating = :rating WHERE id = :bookId")
+    suspend fun updateRating(bookId: Long, rating: Float?)
 
     @Delete
     suspend fun delete(book: BookEntity)

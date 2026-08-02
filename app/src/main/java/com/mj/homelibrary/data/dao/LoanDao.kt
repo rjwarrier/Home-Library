@@ -37,6 +37,9 @@ interface LoanDao {
     @Update
     suspend fun update(loan: LoanEntity)
 
+    @Query("UPDATE loans SET actualReturnDateEpochMillis = :returnedAtEpochMillis WHERE id = :loanId")
+    suspend fun markReturned(loanId: Long, returnedAtEpochMillis: Long)
+
     @Query("DELETE FROM loans")
     suspend fun clear()
 }

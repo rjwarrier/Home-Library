@@ -13,7 +13,6 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.mj.homelibrary.HomeLibraryApplication
 import com.mj.homelibrary.R
-import kotlinx.coroutines.flow.first
 import java.text.DateFormat
 import java.util.Date
 
@@ -27,7 +26,7 @@ class LoanReminderWorker(
         val bookId = inputData.getLong(KEY_BOOK_ID, 0L)
         val loan = app.database.loanDao().get(loanId) ?: return Result.success()
         if (loan.actualReturnDateEpochMillis != null) return Result.success()
-        val book = app.database.bookDao().observeBook(bookId).first() ?: return Result.success()
+        val book = app.database.bookDao().get(bookId) ?: return Result.success()
 
         createChannel()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&

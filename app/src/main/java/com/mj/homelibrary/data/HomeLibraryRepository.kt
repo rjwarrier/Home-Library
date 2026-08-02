@@ -74,15 +74,16 @@ class HomeLibraryRepository(
     }
 
     suspend fun moveBooks(bookIds: Set<Long>, locationId: Long) {
-        bookDao.getAll()
-            .filter { it.id in bookIds }
-            .forEach { bookDao.update(it.copy(locationId = locationId)) }
+        if (bookIds.isNotEmpty()) bookDao.updateLocations(bookIds, locationId)
     }
 
     suspend fun moveBook(bookId: Long, room: String, unit: String, shelf: String, positionNote: String?) {
-        val book = bookDao.get(bookId) ?: return
         val locationId = locationDao.getOrCreate(room, unit, shelf)
-        bookDao.update(book.copy(locationId = locationId, positionNote = positionNote?.trim()?.takeIf(String::isNotBlank)))
+        bookDao.updateLocation(
+            bookId = bookId,
+            locationId = locationId,
+            positionNote = positionNote?.trim()?.takeIf(String::isNotBlank),
+        )
     }
 
     suspend fun addShelf(room: String, unit: String, shelf: String) {
@@ -91,8 +92,7 @@ class HomeLibraryRepository(
     }
 
     suspend fun updateBookRating(bookId: Long, rating: Float) {
-        val book = bookDao.get(bookId) ?: return
-        bookDao.update(book.copy(rating = rating.takeIf { it > 0f }))
+        bookDao.updateRating(bookId, rating.takeIf { it > 0f })
     }
 
     suspend fun deleteBook(book: BookEntity) {
@@ -128,8 +128,7 @@ class HomeLibraryRepository(
     }
 
     suspend fun markReturned(loanId: Long) {
-        val loan = loanDao.get(loanId) ?: return
-        loanDao.update(loan.copy(actualReturnDateEpochMillis = System.currentTimeMillis()))
+        loanDao.markReturned(loanId, System.currentTimeMillis())
     }
 
     suspend fun exportJson(uri: Uri) = backupRepository.exportJson(uri)

@@ -14,6 +14,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.InputStream
+import java.io.IOException
+import java.io.OutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -51,10 +53,15 @@ class BackupRepository(
                 zip.write(manifest.toString(JSON_INDENT_SPACES).toByteArray(Charsets.UTF_8))
                 zip.closeEntry()
                 books.forEach { book ->
-                    val bytes = book.readCoverBytes() ?: return@forEach
-                    zip.putNextEntry(ZipEntry("$COVER_ENTRY_DIR/book-${book.id}-cover.jpg"))
-                    zip.write(bytes)
-                    zip.closeEntry()
+                    val coverInput = book.openCoverInputStream() ?: return@forEach
+                    coverInput.use { input ->
+                        zip.putNextEntry(ZipEntry("$COVER_ENTRY_DIR/book-${book.id}-cover.jpg"))
+                        try {
+                            input.copyTo(zip)
+                        } finally {
+                            zip.closeEntry()
+                        }
+                    }
                 }
             }
         }
@@ -81,7 +88,7 @@ class BackupRepository(
 
     suspend fun importJson(uri: Uri) = withContext(Dispatchers.IO) {
         val text = context.contentResolver.openInputStream(uri)?.use { stream ->
-            stream.bufferedReader().use { it.readText() }
+            stream.readUtf8TextLimited(MAX_IMPORT_TEXT_CHARS)
         } ?: return@withContext
         val snapshot = JSONObject(text)
         val locations = snapshot.optJSONArray(KEY_LOCATIONS).toLocationList()
@@ -115,18 +122,19 @@ class BackupRepository(
                 while (entry != null) {
                     when {
                         entry.name == MANIFEST_ENTRY_NAME -> {
-                            manifest = JSONObject(zip.readBytes().toString(Charsets.UTF_8))
+                            manifest = JSONObject(zip.readUtf8TextLimited(MAX_MANIFEST_CHARS))
                         }
                         !entry.isDirectory && entry.name.startsWith("$COVER_ENTRY_DIR/") -> {
                             val fileName = entry.name.substringAfterLast('/').safeBackupFileName()
                             val bookId = Regex("""book-(\d+)-cover""").find(fileName)?.groupValues?.get(1)?.toLongOrNull()
-                            val bytes = zip.readBytes()
-                            if (bookId != null && bytes.isNotEmpty()) {
+                            if (bookId != null) {
                                 val file = File(directory, fileName)
                                 runCatching {
-                                    file.outputStream().use { it.write(bytes) }
+                                    file.outputStream().use { output ->
+                                        zip.copyToLimited(output, MAX_COVER_ENTRY_BYTES)
+                                    }
                                     restoredCoverPaths[bookId] = file.absolutePath
-                                }
+                                }.onFailure { file.delete() }
                             }
                         }
                     }
@@ -140,7 +148,7 @@ class BackupRepository(
 
     private suspend fun importCompleteBackupLegacyJson(uri: Uri) {
         val text = context.contentResolver.openInputStream(uri)?.use { stream ->
-            stream.bufferedReader().use { it.readText() }
+            stream.readUtf8TextLimited(MAX_IMPORT_TEXT_CHARS)
         } ?: return
         val manifest = JSONObject(text)
         val restoredCoverPaths = restoreCoverImages(manifest.optJSONArray(KEY_COVER_IMAGES))
@@ -177,7 +185,7 @@ class BackupRepository(
 
     suspend fun importCsv(uri: Uri): Int = withContext(Dispatchers.IO) {
         val text = context.contentResolver.openInputStream(uri)?.use { stream ->
-            stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            stream.readUtf8TextLimited(MAX_IMPORT_TEXT_CHARS)
         } ?: error("Unable to open CSV file")
         val rows = BookCsvCodec.decode(text)
         val existingIsbns = database.bookDao().getAll()
@@ -264,16 +272,15 @@ class BackupRepository(
         .put("relation", relation)
         .put("createdAtEpochMillis", createdAtEpochMillis)
 
-    private fun BookEntity.readCoverBytes(): ByteArray? {
+    private fun BookEntity.openCoverInputStream(): InputStream? {
         val imagePath = coverImagePath?.takeIf(String::isNotBlank) ?: return null
-        val bytes = runCatching {
+        return runCatching {
             if (imagePath.startsWith("content://")) {
-                context.contentResolver.openInputStream(Uri.parse(imagePath))?.use { it.readBytes() }
+                context.contentResolver.openInputStream(Uri.parse(imagePath))
             } else {
-                File(imagePath).takeIf { it.exists() && it.isFile }?.readBytes()
+                File(imagePath).takeIf { it.exists() && it.isFile }?.inputStream()
             }
-        }.getOrNull() ?: return null
-        return bytes.takeIf(ByteArray::isNotEmpty)
+        }.getOrNull()
     }
 
     private fun restoreCoverImages(array: JSONArray?): Map<Long, String> {
@@ -396,9 +403,37 @@ class BackupRepository(
 
     private fun writeCsv(uri: Uri, csv: String) {
         val stream = context.contentResolver.openOutputStream(uri) ?: error("Unable to create CSV file")
-        stream.use {
-            it.write(UTF8_BOM)
-            it.write(csv.toByteArray(Charsets.UTF_8))
+        stream.use { output ->
+            output.write(UTF8_BOM)
+            output.bufferedWriter(Charsets.UTF_8).apply {
+                write(csv)
+                flush()
+            }
+        }
+    }
+
+    private fun InputStream.readUtf8TextLimited(maxChars: Int): String {
+        val reader = bufferedReader(Charsets.UTF_8)
+        val result = StringBuilder(minOf(maxChars, DEFAULT_BUFFER_SIZE))
+        val buffer = CharArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val count = reader.read(buffer)
+            if (count < 0) break
+            if (result.length + count > maxChars) throw IOException("Backup text entry exceeds the allowed size")
+            result.append(buffer, 0, count)
+        }
+        return result.toString()
+    }
+
+    private fun InputStream.copyToLimited(output: OutputStream, maxBytes: Long) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var totalBytes = 0L
+        while (true) {
+            val count = read(buffer)
+            if (count < 0) break
+            totalBytes += count
+            if (totalBytes > maxBytes) throw IOException("Backup cover entry exceeds the allowed size")
+            output.write(buffer, 0, count)
         }
     }
 
@@ -420,6 +455,9 @@ class BackupRepository(
         const val KEY_COVER_IMAGES = "coverImages"
         const val MANIFEST_ENTRY_NAME = "backup.json"
         const val COVER_ENTRY_DIR = "covers"
+        const val MAX_MANIFEST_CHARS = 16 * 1024 * 1024
+        const val MAX_IMPORT_TEXT_CHARS = 64 * 1024 * 1024
+        const val MAX_COVER_ENTRY_BYTES = 25L * 1024 * 1024
         val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
     }
 }
