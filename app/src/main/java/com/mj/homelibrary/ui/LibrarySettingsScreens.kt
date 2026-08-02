@@ -157,7 +157,7 @@ fun DataRecoverySettingsScreen(
     val csvImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) onImportCsv(uri)
     }
-    val completeBackupExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+    val completeBackupExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) onExportCompleteBackup(uri)
     }
     val completeBackupImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -206,7 +206,7 @@ fun DataRecoverySettingsScreen(
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
-                    OutlinedButton(onClick = { completeBackupImporter.launch(arrayOf("application/json", "text/*")) }) {
+                    OutlinedButton(onClick = { completeBackupImporter.launch(arrayOf("application/zip", "application/json", "text/*")) }) {
                         Text(stringResource(R.string.action_restore_complete_backup))
                     }
                     Button(onClick = { completeBackupExporter.launch(completeBackupFilename) }) {

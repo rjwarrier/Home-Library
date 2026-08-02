@@ -13,6 +13,10 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.InputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 class BackupRepository(
     private val context: Context,
@@ -33,7 +37,7 @@ class BackupRepository(
 
     suspend fun exportCompleteBackup(uri: Uri) = withContext(Dispatchers.IO) {
         val books = database.bookDao().getAll()
-        val snapshot = JSONObject()
+        val manifest = JSONObject()
             .put(KEY_SCHEMA_VERSION, SCHEMA_VERSION)
             .put(KEY_BACKUP_KIND, BACKUP_KIND_COMPLETE)
             .put(KEY_EXPORTED_AT, System.currentTimeMillis())
@@ -41,9 +45,18 @@ class BackupRepository(
             .put(KEY_BOOKS, JSONArray(books.map { it.toJson() }))
             .put(KEY_LOANS, JSONArray(database.loanDao().getAll().map { it.toJson() }))
             .put(KEY_BORROWERS, JSONArray(database.borrowerDao().getAll().map { it.toJson() }))
-            .put(KEY_COVER_IMAGES, JSONArray(books.mapNotNull { it.toCoverBackupJson() }))
-        context.contentResolver.openOutputStream(uri)?.use { stream ->
-            stream.writer().use { it.write(snapshot.toString(JSON_INDENT_SPACES)) }
+        context.contentResolver.openOutputStream(uri)?.use { output ->
+            ZipOutputStream(output).use { zip ->
+                zip.putNextEntry(ZipEntry(MANIFEST_ENTRY_NAME))
+                zip.write(manifest.toString(JSON_INDENT_SPACES).toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+                books.forEach { book ->
+                    val bytes = book.readCoverBytes() ?: return@forEach
+                    zip.putNextEntry(ZipEntry("$COVER_ENTRY_DIR/book-${book.id}-cover.jpg"))
+                    zip.write(bytes)
+                    zip.closeEntry()
+                }
+            }
         }
     }
 
@@ -94,18 +107,60 @@ class BackupRepository(
     }
 
     suspend fun importCompleteBackup(uri: Uri) = withContext(Dispatchers.IO) {
+        val isZip = context.contentResolver.openInputStream(uri)?.use { it.looksLikeZip() } ?: return@withContext
+        if (isZip) importCompleteBackupZip(uri) else importCompleteBackupLegacyJson(uri)
+    }
+
+    private suspend fun importCompleteBackupZip(uri: Uri) {
+        val directory = File(context.filesDir, COVER_DIRECTORY).also { it.mkdirs() }
+        var manifest: JSONObject? = null
+        val restoredCoverPaths = mutableMapOf<Long, String>()
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            ZipInputStream(input).use { zip ->
+                var entry = zip.getNextEntry()
+                while (entry != null) {
+                    when {
+                        entry.name == MANIFEST_ENTRY_NAME -> {
+                            manifest = JSONObject(zip.readBytes().toString(Charsets.UTF_8))
+                        }
+                        !entry.isDirectory && entry.name.startsWith("$COVER_ENTRY_DIR/") -> {
+                            val fileName = entry.name.substringAfterLast('/').safeBackupFileName()
+                            val bookId = Regex("""book-(\d+)-cover""").find(fileName)?.groupValues?.get(1)?.toLongOrNull()
+                            val bytes = zip.readBytes()
+                            if (bookId != null && bytes.isNotEmpty()) {
+                                val file = File(directory, fileName)
+                                runCatching {
+                                    file.outputStream().use { it.write(bytes) }
+                                    restoredCoverPaths[bookId] = file.absolutePath
+                                }
+                            }
+                        }
+                    }
+                    zip.closeEntry()
+                    entry = zip.getNextEntry()
+                }
+            }
+        }
+        applyCompleteBackupManifest(manifest ?: return, restoredCoverPaths)
+    }
+
+    private suspend fun importCompleteBackupLegacyJson(uri: Uri) {
         val text = context.contentResolver.openInputStream(uri)?.use { stream ->
             stream.bufferedReader().use { it.readText() }
-        } ?: return@withContext
-        val snapshot = JSONObject(text)
-        val restoredCoverPaths = restoreCoverImages(snapshot.optJSONArray(KEY_COVER_IMAGES))
-        val locations = snapshot.optJSONArray(KEY_LOCATIONS).toLocationList()
-        val books = snapshot.optJSONArray(KEY_BOOKS).toBookList().map { book ->
+        } ?: return
+        val manifest = JSONObject(text)
+        val restoredCoverPaths = restoreCoverImages(manifest.optJSONArray(KEY_COVER_IMAGES))
+        applyCompleteBackupManifest(manifest, restoredCoverPaths)
+    }
+
+    private suspend fun applyCompleteBackupManifest(manifest: JSONObject, restoredCoverPaths: Map<Long, String>) {
+        val locations = manifest.optJSONArray(KEY_LOCATIONS).toLocationList()
+        val books = manifest.optJSONArray(KEY_BOOKS).toBookList().map { book ->
             val restoredCoverPath = restoredCoverPaths[book.id]
             if (restoredCoverPath == null) book else book.copy(coverImagePath = restoredCoverPath)
         }
-        val loans = snapshot.optJSONArray(KEY_LOANS).toLoanList()
-        val borrowers = snapshot.optJSONArray(KEY_BORROWERS).toBorrowerList()
+        val loans = manifest.optJSONArray(KEY_LOANS).toLoanList()
+        val borrowers = manifest.optJSONArray(KEY_BORROWERS).toBorrowerList()
         database.withTransaction {
             database.loanDao().clear()
             database.bookDao().clear()
@@ -116,6 +171,14 @@ class BackupRepository(
             database.borrowerDao().insertAll(borrowers)
             database.loanDao().insertAll(loans)
         }
+    }
+
+    private fun InputStream.looksLikeZip(): Boolean {
+        val header = ByteArray(4)
+        val read = runCatching { read(header) }.getOrDefault(-1)
+        return read == 4 &&
+            header[0] == 0x50.toByte() && header[1] == 0x4B.toByte() &&
+            header[2] == 0x03.toByte() && header[3] == 0x04.toByte()
     }
 
     suspend fun importCsv(uri: Uri) = withContext(Dispatchers.IO) {
@@ -193,7 +256,7 @@ class BackupRepository(
         .put("relation", relation)
         .put("createdAtEpochMillis", createdAtEpochMillis)
 
-    private fun BookEntity.toCoverBackupJson(): JSONObject? {
+    private fun BookEntity.readCoverBytes(): ByteArray? {
         val imagePath = coverImagePath?.takeIf(String::isNotBlank) ?: return null
         val bytes = runCatching {
             if (imagePath.startsWith("content://")) {
@@ -202,12 +265,7 @@ class BackupRepository(
                 File(imagePath).takeIf { it.exists() && it.isFile }?.readBytes()
             }
         }.getOrNull() ?: return null
-        if (bytes.isEmpty()) return null
-        return JSONObject()
-            .put("bookId", id)
-            .put("fileName", "book-$id-cover.jpg")
-            .put("mimeType", "image/jpeg")
-            .put("dataBase64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+        return bytes.takeIf(ByteArray::isNotEmpty)
     }
 
     private fun restoreCoverImages(array: JSONArray?): Map<Long, String> {
@@ -396,6 +454,8 @@ class BackupRepository(
         const val KEY_LOANS = "loans"
         const val KEY_BORROWERS = "borrowers"
         const val KEY_COVER_IMAGES = "coverImages"
+        const val MANIFEST_ENTRY_NAME = "backup.json"
+        const val COVER_ENTRY_DIR = "covers"
         const val CSV_HEADER = "title,authors,language,isbn13,isbn10,publisher,published_year,tags,read_status,rating"
     }
 }

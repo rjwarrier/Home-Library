@@ -332,11 +332,11 @@
     <string name="stats_legend_item">%1$s · %2$d</string>
     <string name="backup_json_filename">granthapura-backup.json</string>
     <string name="backup_csv_filename">granthapura-books.csv</string>
-    <string name="backup_complete_filename">granthapura-complete-backup.json</string>
+    <string name="backup_complete_filename">granthapura-complete-backup.zip</string>
     <string name="backup_exported">Backup exported</string>
     <string name="backup_imported">Backup imported</string>
     <string name="complete_backup_title">Complete backup</string>
-    <string name="complete_backup_body">Exports books, shelf locations, loan history, notes, ratings, and locally available cover images into one restore file.</string>
+    <string name="complete_backup_body">Exports books, shelf locations, loan history, notes, ratings, and locally available cover images into one .zip restore file.</string>
     <string name="unknown_author">Unknown author</string>
     <string name="unknown_location">Unassigned location</string>
     <string name="multiple_authors_separator">, </string>
