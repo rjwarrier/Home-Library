@@ -62,27 +62,21 @@ class BackupRepository(
 
     suspend fun exportCsv(uri: Uri) = withContext(Dispatchers.IO) {
         val books = database.bookDao().getAll()
-        context.contentResolver.openOutputStream(uri)?.use { stream ->
-            stream.writer().use { writer ->
-                writer.appendLine(CSV_HEADER)
-                books.forEach { book ->
-                    writer.appendLine(
-                        listOf(
-                            book.title,
-                            book.authors.joinToString("; "),
-                            book.languageCode,
-                            book.isbn13.orEmpty(),
-                            book.isbn10.orEmpty(),
-                            book.publisher.orEmpty(),
-                            book.publishedYear?.toString().orEmpty(),
-                            book.tags.joinToString("; "),
-                            book.readStatusCode,
-                            book.rating?.toString().orEmpty(),
-                        ).joinToString(",") { it.csvEscape() },
-                    )
-                }
-            }
+        val locationsById = database.locationDao().getAll().associateBy { it.id }
+        val rows = books.map { book ->
+            val location = locationsById[book.locationId]
+            BookCsvRow(
+                book = book,
+                room = location?.room,
+                bookcase = location?.unit,
+                shelf = location?.shelf,
+            )
         }
+        writeCsv(uri, BookCsvCodec.encode(rows))
+    }
+
+    suspend fun exportCsvTemplate(uri: Uri) = withContext(Dispatchers.IO) {
+        writeCsv(uri, BookCsvCodec.template())
     }
 
     suspend fun importJson(uri: Uri) = withContext(Dispatchers.IO) {
@@ -181,22 +175,36 @@ class BackupRepository(
             header[2] == 0x03.toByte() && header[3] == 0x04.toByte()
     }
 
-    suspend fun importCsv(uri: Uri) = withContext(Dispatchers.IO) {
+    suspend fun importCsv(uri: Uri): Int = withContext(Dispatchers.IO) {
         val text = context.contentResolver.openInputStream(uri)?.use { stream ->
-            stream.bufferedReader().use { it.readText() }
-        } ?: return@withContext
+            stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } ?: error("Unable to open CSV file")
+        val rows = BookCsvCodec.decode(text)
         val existingIsbns = database.bookDao().getAll()
             .flatMap { listOfNotNull(it.isbn10, it.isbn13) }
             .map { it.normalizedIsbn() }
             .toMutableSet()
-        val imported = text.lineSequence()
-            .filter(String::isNotBlank)
-            .drop(1)
-            .mapNotNull { line -> line.parseCsvRow().toBookEntityOrNull(existingIsbns) }
-            .toList()
-        if (imported.isNotEmpty()) {
-            database.bookDao().insertAll(imported)
+        var importedCount = 0
+        database.withTransaction {
+            rows.forEach { row ->
+                val candidateIsbns = listOfNotNull(row.book.isbn10, row.book.isbn13)
+                if (candidateIsbns.any { it in existingIsbns }) return@forEach
+
+                val locationId = if (
+                    !row.room.isNullOrBlank() &&
+                    !row.bookcase.isNullOrBlank() &&
+                    !row.shelf.isNullOrBlank()
+                ) {
+                    database.locationDao().getOrCreate(row.room, row.bookcase, row.shelf)
+                } else {
+                    null
+                }
+                database.bookDao().insert(row.book.copy(locationId = locationId))
+                existingIsbns += candidateIsbns
+                importedCount++
+            }
         }
+        importedCount
     }
 
     private fun BookEntity.toJson(): JSONObject = JSONObject()
@@ -386,57 +394,13 @@ class BackupRepository(
     private fun JSONObject.optNullableDouble(key: String): Double? =
         if (isNull(key) || !has(key)) null else optDouble(key)
 
-    private fun String.csvEscape(): String = "\"${replace("\"", "\"\"")}\""
-
-    private fun String.parseCsvRow(): List<String> {
-        val values = mutableListOf<String>()
-        val current = StringBuilder()
-        var quoted = false
-        var index = 0
-        while (index < length) {
-            val char = this[index]
-            when {
-                char == '"' && quoted && getOrNull(index + 1) == '"' -> {
-                    current.append('"')
-                    index++
-                }
-                char == '"' -> quoted = !quoted
-                char == ',' && !quoted -> {
-                    values += current.toString()
-                    current.clear()
-                }
-                else -> current.append(char)
-            }
-            index++
+    private fun writeCsv(uri: Uri, csv: String) {
+        val stream = context.contentResolver.openOutputStream(uri) ?: error("Unable to create CSV file")
+        stream.use {
+            it.write(UTF8_BOM)
+            it.write(csv.toByteArray(Charsets.UTF_8))
         }
-        values += current.toString()
-        return values
     }
-
-    private fun List<String>.toBookEntityOrNull(existingIsbns: MutableSet<String>): BookEntity? {
-        val title = getOrNull(0)?.trim().orEmpty()
-        if (title.isBlank()) return null
-        val isbn13 = getOrNull(3)?.normalizedIsbn13OrNull()
-        val isbn10 = getOrNull(4)?.normalizedIsbn10OrNull()
-        val candidateIsbns = listOfNotNull(isbn10, isbn13)
-        if (candidateIsbns.any { it in existingIsbns }) return null
-        existingIsbns += candidateIsbns
-        return BookEntity(
-            title = title,
-            authors = getOrNull(1).semicolonList(),
-            languageCode = getOrNull(2)?.trim()?.takeIf(String::isNotBlank) ?: "en",
-            isbn13 = isbn13,
-            isbn10 = isbn10,
-            publisher = getOrNull(5)?.trim()?.takeIf(String::isNotBlank),
-            publishedYear = getOrNull(6)?.trim()?.toIntOrNull(),
-            tags = getOrNull(7).semicolonList(),
-            readStatusCode = getOrNull(8)?.trim()?.takeIf(String::isNotBlank) ?: "unread",
-            rating = getOrNull(9)?.trim()?.toFloatOrNull()?.takeIf { it > 0f },
-        )
-    }
-
-    private fun String?.semicolonList(): List<String> =
-        orEmpty().split(";").map { it.trim() }.filter(String::isNotBlank)
 
     private fun String.safeBackupFileName(): String =
         replace(Regex("""[^A-Za-z0-9._-]"""), "_").take(80).ifBlank { "cover.jpg" }
@@ -456,6 +420,6 @@ class BackupRepository(
         const val KEY_COVER_IMAGES = "coverImages"
         const val MANIFEST_ENTRY_NAME = "backup.json"
         const val COVER_ENTRY_DIR = "covers"
-        const val CSV_HEADER = "title,authors,language,isbn13,isbn10,publisher,published_year,tags,read_status,rating"
+        val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
     }
 }

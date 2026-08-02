@@ -136,6 +136,8 @@ class HomeLibraryRepository(
 
     suspend fun exportCsv(uri: Uri) = backupRepository.exportCsv(uri)
 
+    suspend fun exportCsvTemplate(uri: Uri) = backupRepository.exportCsvTemplate(uri)
+
     suspend fun importJson(uri: Uri) = backupRepository.importJson(uri)
 
     suspend fun importCsv(uri: Uri) = backupRepository.importCsv(uri)

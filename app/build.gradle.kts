@@ -66,5 +66,6 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.mlkit.barcode.scanning)
     ksp(libs.androidx.room.compiler)
+    testImplementation(libs.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

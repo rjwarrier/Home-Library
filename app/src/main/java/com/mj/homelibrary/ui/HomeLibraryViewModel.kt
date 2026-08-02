@@ -351,8 +351,17 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
 
     fun exportCsv(uri: Uri) {
         viewModelScope.launch {
-            repository.exportCsv(uri)
-            transient.update { it.copy(statusRes = R.string.backup_exported) }
+            runCatching { repository.exportCsv(uri) }
+                .onSuccess { transient.update { it.copy(statusRes = R.string.csv_exported, errorRes = null) } }
+                .onFailure { transient.update { it.copy(errorRes = R.string.csv_export_failed) } }
+        }
+    }
+
+    fun exportCsvTemplate(uri: Uri) {
+        viewModelScope.launch {
+            runCatching { repository.exportCsvTemplate(uri) }
+                .onSuccess { transient.update { it.copy(statusRes = R.string.csv_template_exported, errorRes = null) } }
+                .onFailure { transient.update { it.copy(errorRes = R.string.csv_export_failed) } }
         }
     }
 
@@ -365,8 +374,9 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
 
     fun importCsv(uri: Uri) {
         viewModelScope.launch {
-            repository.importCsv(uri)
-            transient.update { it.copy(statusRes = R.string.backup_imported) }
+            runCatching { repository.importCsv(uri) }
+                .onSuccess { transient.update { it.copy(statusRes = R.string.csv_imported, errorRes = null) } }
+                .onFailure { transient.update { it.copy(errorRes = R.string.csv_import_failed) } }
         }
     }
 

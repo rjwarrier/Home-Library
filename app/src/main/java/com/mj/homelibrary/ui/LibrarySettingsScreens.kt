@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Notifications
@@ -154,6 +155,7 @@ fun DataRecoverySettingsScreen(
     onBack: () -> Unit,
     onExportJson: (Uri) -> Unit,
     onExportCsv: (Uri) -> Unit,
+    onExportCsvTemplate: (Uri) -> Unit,
     onImportJson: (Uri) -> Unit,
     onImportCsv: (Uri) -> Unit,
     onExportCompleteBackup: (Uri) -> Unit,
@@ -165,12 +167,16 @@ fun DataRecoverySettingsScreen(
     val context = LocalContext.current
     val jsonFilename = stringResource(R.string.backup_json_filename)
     val csvFilename = stringResource(R.string.backup_csv_filename)
+    val csvTemplateFilename = stringResource(R.string.csv_template_filename)
     val completeBackupFilename = stringResource(R.string.backup_complete_filename)
     val jsonExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) onExportJson(uri)
     }
     val csvExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) onExportCsv(uri)
+    }
+    val csvTemplateExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) onExportCsvTemplate(uri)
     }
     val jsonImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) onImportJson(uri)
@@ -265,6 +271,14 @@ fun DataRecoverySettingsScreen(
                     OutlinedButton(onClick = { csvImporter.launch(arrayOf("text/csv", "text/*")) }, modifier = Modifier.weight(1f)) {
                         Text(stringResource(R.string.action_import_csv))
                     }
+                }
+                OutlinedButton(
+                    onClick = { csvTemplateExporter.launch(csvTemplateFilename) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    Icon(Icons.Outlined.Description, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.action_download_csv_template))
                 }
             }
         }

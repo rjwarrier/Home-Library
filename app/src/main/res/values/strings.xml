@@ -51,6 +51,7 @@
     <string name="action_export_csv">Export CSV</string>
     <string name="action_import_json">Import JSON</string>
     <string name="action_import_csv">Import CSV</string>
+    <string name="action_download_csv_template">Download CSV template</string>
     <string name="action_export_complete_backup">Complete backup</string>
     <string name="action_restore_complete_backup">Restore backup</string>
     <string name="action_search_google">Search Google</string>
@@ -216,7 +217,7 @@
     <string name="settings_backup_reminder_disabled">Backup reminder disabled</string>
     <string name="settings_backup_reminder_desc">Highlight backups when the last complete backup is older than %1$d days.</string>
     <string name="settings_data_exchange_title">JSON and CSV exchange</string>
-    <string name="settings_data_exchange_body">Use JSON for app-to-app catalog transfer, or CSV when you want to inspect books in a spreadsheet.</string>
+    <string name="settings_data_exchange_body">Use JSON for app-to-app catalog transfer. CSV includes book details and shelf locations, but excludes cover images.</string>
     <string name="settings_loan_reminders_title">Loan reminders</string>
     <string name="settings_loan_reminders_enabled">Notify for due loans</string>
     <string name="settings_loan_reminders_body">Reminders are scheduled when a loan is created with an expected return date.</string>
@@ -336,9 +337,13 @@
     <string name="stats_legend_item">%1$s · %2$d</string>
     <string name="backup_json_filename">granthapura-backup.json</string>
     <string name="backup_csv_filename">granthapura-books.csv</string>
+    <string name="csv_template_filename">granthapura-books-template.csv</string>
     <string name="backup_complete_filename">granthapura-complete-backup.zip</string>
     <string name="backup_exported">Backup exported</string>
     <string name="backup_imported">Backup imported</string>
+    <string name="csv_exported">CSV exported</string>
+    <string name="csv_imported">CSV import complete</string>
+    <string name="csv_template_exported">CSV template saved</string>
     <string name="complete_backup_title">Complete backup</string>
     <string name="complete_backup_body">Exports books, shelf locations, loan history, notes, ratings, and locally available cover images into one .zip restore file.</string>
     <string name="unknown_author">Unknown author</string>
@@ -397,6 +402,8 @@
     <string name="content_description_sort">Sort books</string>
     <string name="content_description_switch_view">Switch view</string>
     <string name="error_title_required">Title is required.</string>
+    <string name="csv_export_failed">Could not create the CSV file.</string>
+    <string name="csv_import_failed">Could not import the CSV. Use the CSV template and check the file contents.</string>
     <string name="default_room">Library Room</string>
     <string name="default_unit">Bookcase 1</string>
     <string name="default_shelf">Shelf 1</string>
