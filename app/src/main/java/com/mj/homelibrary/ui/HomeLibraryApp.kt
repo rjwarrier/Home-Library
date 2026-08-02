@@ -241,17 +241,8 @@ private enum class SettingsRoute {
     HelpAbout,
 }
 
-private fun BookEntity.matchesIsbn(isbn: String): Boolean {
-    val normalized = isbn.validIsbnOrNull() ?: return false
-    return isbn10 == normalized || isbn13 == normalized
-}
-
 private fun BookEntity.toListItem(state: HomeLibraryUiState): BookListItem =
-    BookListItem(
-        book = this,
-        location = state.locations.firstOrNull { it.id == locationId },
-        activeLoan = state.activeLoans.firstOrNull { it.bookId == id },
-    )
+    state.itemByBookId[id] ?: BookListItem(book = this, location = null, activeLoan = null)
 
 private fun List<String>.distinctSorted(): List<String> =
     map { it.trim() }
@@ -289,7 +280,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     val haptics = LocalHapticFeedback.current
 
     fun openBookForIsbn(isbn: String) {
-        val existingBook = state.allBooks.firstOrNull { it.matchesIsbn(isbn) }
+        val existingBook = isbn.validIsbnOrNull()?.let(state.bookByIsbn::get)
         if (existingBook != null) {
             editBook = existingBook.toListItem(state)
             enrichExistingBookId = existingBook.id
@@ -619,7 +610,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     selectedBook?.let { item ->
         BookDetailSheet(
             item = item,
-            loans = state.loans.filter { it.bookId == item.book.id },
+            loans = state.loansByBookId[item.book.id].orEmpty(),
             onDismiss = { selectedBook = null },
             onLoan = { loanFlowBook = item.book },
             onReturn = { returnLoan = it },
@@ -661,15 +652,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     auditShelf?.let { location ->
         ShelfAuditSheet(
             location = location,
-            books = state.allBooks
-                .filter { it.locationId == location.id }
-                .map { book ->
-                    BookListItem(
-                        book = book,
-                        location = location,
-                        activeLoan = state.activeLoans.firstOrNull { it.bookId == book.id },
-                    )
-                },
+            books = state.itemsByLocationId[location.id].orEmpty(),
             onDismiss = { auditShelf = null },
             onBookClick = {
                 selectedBook = it
@@ -688,16 +671,8 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     }
 
     if (showNewLoanFlow || loanFlowBook != null) {
-        val availableBooks = remember(state.allBooks, state.locations, state.activeLoans) {
-            state.allBooks
-                .map { book ->
-                    BookListItem(
-                        book = book,
-                        location = state.locations.firstOrNull { it.id == book.locationId },
-                        activeLoan = state.activeLoans.firstOrNull { it.bookId == book.id },
-                    )
-                }
-                .filterNot { it.isOnLoan }
+        val availableBooks = remember(state.allItems) {
+            state.allItems.filterNot { it.isOnLoan }
         }
         NewLoanFlowSheet(
             preselectedBook = loanFlowBook,
@@ -715,11 +690,10 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     }
 
     returnLoan?.let { loan ->
-        val book = state.allBooks.firstOrNull { it.id == loan.bookId }
-        val item = state.visibleBooks.firstOrNull { it.book.id == loan.bookId }
+        val item = state.itemByBookId[loan.bookId]
         ReturnConfirmationDialog(
             loan = loan,
-            book = book,
+            book = item?.book,
             location = item?.location,
             onDismiss = { returnLoan = null },
             onReturn = {
@@ -1547,7 +1521,13 @@ private fun ShelvesScreen(
             ) {
                 state.locations.groupBy { it.room }.forEach { (room, locations) ->
                     item(key = room) {
-                        RoomSection(room = room, locations = locations, items = state.visibleBooks, onBookClick = onBookClick, onAudit = onAudit)
+                        RoomSection(
+                            room = room,
+                            locations = locations,
+                            itemsByLocationId = state.visibleItemsByLocationId,
+                            onBookClick = onBookClick,
+                            onAudit = onAudit,
+                        )
                     }
                 }
             }
@@ -1559,7 +1539,7 @@ private fun ShelvesScreen(
 private fun RoomSection(
     room: String,
     locations: List<LocationEntity>,
-    items: List<BookListItem>,
+    itemsByLocationId: Map<Long, List<BookListItem>>,
     onBookClick: (BookListItem) -> Unit,
     onAudit: (LocationEntity) -> Unit,
 ) {
@@ -1567,10 +1547,16 @@ private fun RoomSection(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Outlined.Weekend, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(19.dp))
             Text(room, fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
-            CountChip(stringResource(R.string.book_count, items.count { it.location?.room == room }))
+            CountChip(stringResource(R.string.book_count, locations.sumOf { itemsByLocationId[it.id].orEmpty().size }))
         }
         locations.groupBy { it.unit }.forEach { (unit, unitLocations) ->
-            BookcaseCard(unit = unit, locations = unitLocations, items = items, onBookClick = onBookClick, onAudit = onAudit)
+            BookcaseCard(
+                unit = unit,
+                locations = unitLocations,
+                itemsByLocationId = itemsByLocationId,
+                onBookClick = onBookClick,
+                onAudit = onAudit,
+            )
         }
     }
 }
@@ -1579,7 +1565,7 @@ private fun RoomSection(
 private fun BookcaseCard(
     unit: String,
     locations: List<LocationEntity>,
-    items: List<BookListItem>,
+    itemsByLocationId: Map<Long, List<BookListItem>>,
     onBookClick: (BookListItem) -> Unit,
     onAudit: (LocationEntity) -> Unit,
 ) {
@@ -1598,7 +1584,7 @@ private fun BookcaseCard(
                 Icon(Icons.Outlined.UnfoldMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             locations.forEach { location ->
-                val shelfBooks = items.filter { it.location?.id == location.id }
+                val shelfBooks = itemsByLocationId[location.id].orEmpty()
                 ShelfRow(location = location, books = shelfBooks, onBookClick = onBookClick, onAudit = onAudit)
             }
         }
@@ -1687,9 +1673,7 @@ private fun LoansScreen(
     val overdueCount = state.activeLoans.count { it.expectedReturnDateEpochMillis?.let { due -> due < System.currentTimeMillis() } == true }
     val borrowers = state.activeLoans.groupBy { it.borrowerName }
     val bookById = remember(state.allBooks) { state.allBooks.associateBy { it.id } }
-    val itemByBookId = remember(state.allBooks, state.locations, state.activeLoans) {
-        state.allBooks.associate { it.id to it.toListItem(state) }
-    }
+    val itemByBookId = state.itemByBookId
     ContentColumn {
         ScreenHeader(
             titleRes = R.string.screen_loans,

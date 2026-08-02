@@ -58,39 +58,78 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         BackupReminderWorker.reschedule(WorkManager.getInstance(application), librarySettings.value.backupReminderDays)
     }
 
-    private val loanData = combine(repository.loans, repository.borrowers) { loans, borrowers -> LoanData(loans, borrowers) }
-
-    val state: StateFlow<HomeLibraryUiState> = combine(
+    private val catalogData = combine(
         repository.books,
         repository.locations,
-        loanData,
-        filters,
-        transient,
-    ) { books, locations, loanData, filters, transient ->
-        val (loans, borrowers) = loanData
+        repository.loans,
+    ) { books, locations, loans ->
         val activeLoans = loans.filter { it.actualReturnDateEpochMillis == null }
         val locationById = locations.associateBy { it.id }
         val activeLoanByBookId = activeLoans.associateBy { it.bookId }
-        val items = books.map { book ->
+        val allItems = books.map { book ->
             BookListItem(
                 book = book,
                 location = locationById[book.locationId],
                 activeLoan = activeLoanByBookId[book.id],
             )
-        }.filter(filters::matches)
-            .sortedWith(filters.sort.comparator())
-
-        HomeLibraryUiState(
-            allBooks = books,
-            visibleBooks = items,
+        }
+        CatalogData(
+            books = books,
+            allItems = allItems,
             locations = locations,
             loans = loans,
             activeLoans = activeLoans,
-            borrowers = borrowers,
-            filters = filters,
-            transient = transient,
+            itemByBookId = allItems.associateBy { it.book.id },
+            itemsByLocationId = allItems
+                .mapNotNull { item -> item.book.locationId?.let { it to item } }
+                .groupBy(keySelector = { it.first }, valueTransform = { it.second }),
+            loansByBookId = loans.groupBy { it.bookId },
+            bookByIsbn = buildMap {
+                books.forEach { book ->
+                    book.isbn10?.let { putIfAbsent(it, book) }
+                    book.isbn13?.let { putIfAbsent(it, book) }
+                }
+            },
+            searchKeyByBookId = books.associate { it.id to it.toSearchKey() },
             stats = LibraryStats.from(books, loans, activeLoans),
         )
+    }
+
+    private val persistentState = combine(catalogData, repository.borrowers, filters) { catalog, borrowers, filters ->
+        val normalizedQuery = filters.query.searchKey()
+        val visibleItems = catalog.allItems.asSequence()
+            .filter { item ->
+                filters.matches(
+                    item = item,
+                    normalizedQuery = normalizedQuery,
+                    searchKey = catalog.searchKeyByBookId[item.book.id].orEmpty(),
+                )
+            }
+            .sortedWith(filters.sort.comparator())
+            .toList()
+
+        HomeLibraryUiState(
+            allBooks = catalog.books,
+            allItems = catalog.allItems,
+            visibleBooks = visibleItems,
+            locations = catalog.locations,
+            loans = catalog.loans,
+            activeLoans = catalog.activeLoans,
+            borrowers = borrowers,
+            filters = filters,
+            stats = catalog.stats,
+            itemByBookId = catalog.itemByBookId,
+            itemsByLocationId = catalog.itemsByLocationId,
+            visibleItemsByLocationId = visibleItems
+                .mapNotNull { item -> item.book.locationId?.let { it to item } }
+                .groupBy(keySelector = { it.first }, valueTransform = { it.second }),
+            loansByBookId = catalog.loansByBookId,
+            bookByIsbn = catalog.bookByIsbn,
+        )
+    }
+
+    val state: StateFlow<HomeLibraryUiState> = combine(persistentState, transient) { state, transient ->
+        state.copy(transient = transient)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -414,6 +453,7 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
 
 data class HomeLibraryUiState(
     val allBooks: List<BookEntity> = emptyList(),
+    val allItems: List<BookListItem> = emptyList(),
     val visibleBooks: List<BookListItem> = emptyList(),
     val locations: List<LocationEntity> = emptyList(),
     val loans: List<LoanEntity> = emptyList(),
@@ -422,9 +462,26 @@ data class HomeLibraryUiState(
     val filters: LibraryFilters = LibraryFilters(),
     val transient: TransientState = TransientState(),
     val stats: LibraryStats = LibraryStats(),
+    val itemByBookId: Map<Long, BookListItem> = emptyMap(),
+    val itemsByLocationId: Map<Long, List<BookListItem>> = emptyMap(),
+    val visibleItemsByLocationId: Map<Long, List<BookListItem>> = emptyMap(),
+    val loansByBookId: Map<Long, List<LoanEntity>> = emptyMap(),
+    val bookByIsbn: Map<String, BookEntity> = emptyMap(),
 )
 
-private data class LoanData(val loans: List<LoanEntity>, val borrowers: List<BorrowerEntity>)
+private data class CatalogData(
+    val books: List<BookEntity>,
+    val allItems: List<BookListItem>,
+    val locations: List<LocationEntity>,
+    val loans: List<LoanEntity>,
+    val activeLoans: List<LoanEntity>,
+    val itemByBookId: Map<Long, BookListItem>,
+    val itemsByLocationId: Map<Long, List<BookListItem>>,
+    val loansByBookId: Map<Long, List<LoanEntity>>,
+    val bookByIsbn: Map<String, BookEntity>,
+    val searchKeyByBookId: Map<Long, String>,
+    val stats: LibraryStats,
+)
 
 data class BookListItem(
     val book: BookEntity,
@@ -447,7 +504,7 @@ data class LibraryFilters(
     val mainGenre: String? = null,
     val subGenre: String? = null,
 ) {
-    fun matches(item: BookListItem): Boolean {
+    fun matches(item: BookListItem, normalizedQuery: String, searchKey: String): Boolean {
         if (languageCode != null && item.book.languageCode != languageCode) return false
         if (readStatusCode != null && item.book.readStatusCode != readStatusCode) return false
         if (onLoanOnly && !item.isOnLoan) return false
@@ -455,34 +512,7 @@ data class LibraryFilters(
         if (tag != null && item.book.tags.none { it.equals(tag, ignoreCase = true) }) return false
         if (mainGenre != null && !item.book.mainGenre.equals(mainGenre, ignoreCase = true)) return false
         if (subGenre != null && item.book.subGenres.none { it.equals(subGenre, ignoreCase = true) }) return false
-        if (query.isBlank()) return true
-        val normalizedQuery = query.searchKey()
-        val haystack = buildString {
-            append(item.book.title)
-            append(' ')
-            append(item.book.subtitle.orEmpty())
-            append(' ')
-            append(item.book.originalScriptTitle.orEmpty())
-            append(' ')
-            append(item.book.authors.joinToString(" "))
-            append(' ')
-            append(item.book.tags.joinToString(" "))
-            append(' ')
-            append(item.book.notes.orEmpty())
-            append(' ')
-            append(item.book.isbn10.orEmpty())
-            append(' ')
-            append(item.book.isbn13.orEmpty())
-            append(' ')
-            append(item.book.seriesName.orEmpty())
-            append(' ')
-            append(item.book.mainGenre.orEmpty())
-            append(' ')
-            append(item.book.subGenres.joinToString(" "))
-            append(' ')
-            append(item.book.edition.orEmpty())
-        }.searchKey()
-        return normalizedQuery in haystack
+        return normalizedQuery.isBlank() || normalizedQuery in searchKey
     }
 }
 
@@ -678,6 +708,32 @@ private fun Long.toLocalYear(): Int =
     java.time.Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).year
 
 private val CombiningMarksRegex = Regex("\\p{InCombiningDiacriticalMarks}+")
+
+private fun BookEntity.toSearchKey(): String = buildString {
+    append(title)
+    append(' ')
+    append(subtitle.orEmpty())
+    append(' ')
+    append(originalScriptTitle.orEmpty())
+    append(' ')
+    append(authors.joinToString(" "))
+    append(' ')
+    append(tags.joinToString(" "))
+    append(' ')
+    append(notes.orEmpty())
+    append(' ')
+    append(isbn10.orEmpty())
+    append(' ')
+    append(isbn13.orEmpty())
+    append(' ')
+    append(seriesName.orEmpty())
+    append(' ')
+    append(mainGenre.orEmpty())
+    append(' ')
+    append(subGenres.joinToString(" "))
+    append(' ')
+    append(edition.orEmpty())
+}.searchKey()
 
 private fun String.searchKey(): String =
     Normalizer.normalize(lowercase(), Normalizer.Form.NFD)
