@@ -343,6 +343,8 @@
     <string name="comma_separator">, </string>
     <string name="breadcrumb_separator"> › </string>
     <string name="isbn_lookup_failed">ISBN lookup failed. You can still save the book manually.</string>
+    <string name="auto_lookup_failed_title">No info found for this ISBN</string>
+    <string name="auto_lookup_failed_body">%1$s isn\'t in Open Library or Google Books. Enter the details below, or try Find covers once you\'ve added a title.</string>
     <string name="lookup_failed_title">Lookup did not find this ISBN</string>
     <string name="lookup_failed_body">No metadata was found for %1$s. Search the web, or continue entering the book manually.</string>
     <string name="duplicate_isbn_warning">A book with this ISBN already exists.</string>

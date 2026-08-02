@@ -556,6 +556,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             onDismiss = { showAddBook = false; advanceBulkQueue() },
             onSkip = { showAddBook = false; advanceBulkQueue() },
             onLookup = viewModel::lookupIsbn,
+            onSilentLookup = viewModel::lookupIsbnSilently,
             onFindCoverCandidates = viewModel::findCoverCandidates,
             onSave = { draft -> viewModel.addBook(draft) { showAddBook = false; advanceBulkQueue() } },
         )
@@ -592,6 +593,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                 advanceBulkQueue()
             },
             onLookup = viewModel::lookupIsbn,
+            onSilentLookup = viewModel::lookupIsbnSilently,
             onFindCoverCandidates = viewModel::findCoverCandidates,
             onSave = { draft ->
                 viewModel.addBook(draft) {
@@ -2713,6 +2715,7 @@ private fun AddBookSheet(
     onDismiss: () -> Unit,
     onSkip: () -> Unit = onDismiss,
     onLookup: (String, (com.mj.homelibrary.data.remote.BookMetadata?) -> Unit) -> Unit,
+    onSilentLookup: (String, (com.mj.homelibrary.data.remote.BookMetadata?) -> Unit) -> Unit,
     onFindCoverCandidates: (String, String, List<String>, (List<String>) -> Unit) -> Unit,
     onSave: (BookDraft) -> Unit,
 ) {
@@ -2730,6 +2733,7 @@ private fun AddBookSheet(
     var coverCandidates by remember { mutableStateOf<List<String>>(emptyList()) }
     var findCoversInProgress by remember { mutableStateOf(false) }
     var showCoverPicker by remember { mutableStateOf(false) }
+    var autoLookupFailed by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -2740,21 +2744,27 @@ private fun AddBookSheet(
         }
     }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    fun lookupIfValid(isbn: String) {
-        val validIsbn = isbn.validIsbnOrNull() ?: return
-        onLookup(validIsbn) { metadata ->
-            if (metadata != null) {
-                draft = if (fillOnlyEmpty) {
-                    draft.applyMissingMetadata(metadata, validIsbn)
-                } else {
-                    draft.copy(isbn = validIsbn).applyMetadata(metadata)
-                }
+    fun applyLookupResult(validIsbn: String, metadata: com.mj.homelibrary.data.remote.BookMetadata?) {
+        if (metadata != null) {
+            autoLookupFailed = false
+            draft = if (fillOnlyEmpty) {
+                draft.applyMissingMetadata(metadata, validIsbn)
+            } else {
+                draft.copy(isbn = validIsbn).applyMetadata(metadata)
             }
         }
     }
+    fun lookupIfValid(isbn: String) {
+        val validIsbn = isbn.validIsbnOrNull() ?: return
+        onLookup(validIsbn) { metadata -> applyLookupResult(validIsbn, metadata) }
+    }
     LaunchedEffect(initialIsbn, autoLookup, fillOnlyEmpty) {
-        if (autoLookup && !manualEntry && initialIsbn.validIsbnOrNull() != null) {
-            lookupIfValid(initialIsbn)
+        val validIsbn = initialIsbn.validIsbnOrNull()
+        if (autoLookup && !manualEntry && validIsbn != null) {
+            onSilentLookup(validIsbn) { metadata ->
+                applyLookupResult(validIsbn, metadata)
+                if (metadata == null) autoLookupFailed = true
+            }
         }
     }
     ModalBottomSheet(
@@ -2814,6 +2824,9 @@ private fun AddBookSheet(
             if (lookupInProgress) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Text(stringResource(R.string.lookup_in_progress), style = MaterialTheme.typography.bodySmall)
+            }
+            if (autoLookupFailed && draft.title.isBlank()) {
+                AutoLookupFailedBanner(isbn = draft.isbn, onDismiss = { autoLookupFailed = false })
             }
             if (!manualEntry && draft.title.isNotBlank()) {
                 MetadataLoadedCard(draft)
@@ -3287,6 +3300,40 @@ private fun MetadataLoadedCard(draft: BookDraft) {
                 Text(draft.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(draft.publisher, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f), maxLines = 1)
                 Text(stringResource(R.string.metadata_loaded_hint), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutoLookupFailedBanner(isbn: String, onDismiss: () -> Unit) {
+    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Outlined.SearchOff, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    stringResource(R.string.auto_lookup_failed_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Text(
+                    stringResource(R.string.auto_lookup_failed_body, isbn),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f),
+                )
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = stringResource(R.string.content_description_close),
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
     }

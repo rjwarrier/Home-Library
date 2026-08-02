@@ -292,6 +292,21 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    /**
+     * Same lookup, but on failure it just calls [onResult] with null instead of surfacing the
+     * blocking failure dialog -- used for the automatic lookup right after a scan, where a
+     * miss should quietly fall through to manual entry rather than interrupt the user.
+     */
+    fun lookupIsbnSilently(isbn: String, onResult: (BookMetadata?) -> Unit) {
+        viewModelScope.launch {
+            transient.update { it.copy(lookupInProgress = true) }
+            repository.lookupBook(isbn)
+                .onSuccess { onResult(it) }
+                .onFailure { onResult(null) }
+            transient.update { it.copy(lookupInProgress = false) }
+        }
+    }
+
     fun findCoverCandidates(isbn: String, title: String, authors: List<String>, onResult: (List<String>) -> Unit) {
         viewModelScope.launch {
             onResult(repository.searchCoverCandidates(isbn, title, authors))
