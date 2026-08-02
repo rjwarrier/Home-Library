@@ -25,6 +25,56 @@ class BookLookupService(private val context: Context) {
         }
     }
 
+    suspend fun searchCoverCandidates(isbn: String, title: String, authors: List<String>): List<String> =
+        withContext(Dispatchers.IO) {
+            val normalized = isbn.normalizedIsbn()
+            val candidates = LinkedHashSet<String>()
+
+            runCatching {
+                getJson("https://openlibrary.org/isbn/$normalized.json")
+                    ?.optJSONArray("covers")
+                    ?.let { array -> List(array.length()) { array.optLong(it) } }
+                    ?.filter { it > 0L }
+                    ?.forEach { candidates += "https://covers.openlibrary.org/b/id/$it-L.jpg" }
+            }
+
+            runCatching {
+                val encoded = URLEncoder.encode(normalized, StandardCharsets.UTF_8.name())
+                getJson("https://openlibrary.org/search.json?isbn=$encoded&fields=cover_i")
+                    ?.optJSONArray("docs")
+                    ?.let { array -> List(array.length()) { array.optJSONObject(it) } }
+                    ?.mapNotNull { it?.optLong("cover_i")?.takeIf { id -> id > 0L } }
+                    ?.forEach { candidates += "https://covers.openlibrary.org/b/id/$it-L.jpg" }
+            }
+
+            runCatching {
+                val encoded = URLEncoder.encode("isbn:$normalized", StandardCharsets.UTF_8.name())
+                getJson("https://www.googleapis.com/books/v1/volumes?q=$encoded")
+                    ?.optJSONArray("items")
+                    ?.let { array -> List(array.length()) { array.optJSONObject(it) } }
+                    ?.mapNotNull { it?.optJSONObject("volumeInfo")?.optJSONObject("imageLinks").bestGoogleCoverUrl() }
+                    ?.forEach { candidates += it }
+            }
+
+            if (title.isNotBlank()) {
+                runCatching {
+                    val query = buildString {
+                        append("intitle:")
+                        append(title)
+                        authors.firstOrNull()?.let { append("+inauthor:"); append(it) }
+                    }
+                    val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
+                    getJson("https://www.googleapis.com/books/v1/volumes?q=$encoded&maxResults=$MAX_TITLE_SEARCH_RESULTS")
+                        ?.optJSONArray("items")
+                        ?.let { array -> List(array.length()) { array.optJSONObject(it) } }
+                        ?.mapNotNull { it?.optJSONObject("volumeInfo")?.optJSONObject("imageLinks").bestGoogleCoverUrl() }
+                        ?.forEach { candidates += it }
+                }
+            }
+
+            candidates.take(MAX_COVER_CANDIDATES)
+        }
+
     private fun lookupOpenLibrary(isbn: String): BookMetadata? {
         val url = "https://openlibrary.org/isbn/$isbn.json"
         val json = getJson(url) ?: return null
@@ -223,5 +273,7 @@ class BookLookupService(private val context: Context) {
     private companion object {
         const val NETWORK_TIMEOUT_MS = 12_000
         const val MAX_TAGS = 12
+        const val MAX_COVER_CANDIDATES = 8
+        const val MAX_TITLE_SEARCH_RESULTS = 4
     }
 }

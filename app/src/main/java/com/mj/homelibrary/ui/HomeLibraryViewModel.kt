@@ -265,6 +265,12 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun findCoverCandidates(isbn: String, title: String, authors: List<String>, onResult: (List<String>) -> Unit) {
+        viewModelScope.launch {
+            onResult(repository.searchCoverCandidates(isbn, title, authors))
+        }
+    }
+
     fun loanBook(draft: LoanDraft, onSaved: () -> Unit) {
         if (draft.borrowerName.isBlank()) return
         viewModelScope.launch {

@@ -43,6 +43,9 @@ class HomeLibraryRepository(
 
     suspend fun lookupBook(isbn: String): Result<BookMetadata> = lookupService.lookup(isbn)
 
+    suspend fun searchCoverCandidates(isbn: String, title: String, authors: List<String>): List<String> =
+        lookupService.searchCoverCandidates(isbn, title, authors)
+
     suspend fun hasDuplicateIsbn(isbn: String, ignoreBookId: Long? = null): Boolean {
         val normalized = isbn.normalizedIsbn()
         val existing = if (normalized.isNotBlank()) bookDao.findByIsbn(normalized) else null

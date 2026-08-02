@@ -542,6 +542,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             onDismiss = { showAddBook = false; advanceBulkQueue() },
             onSkip = { showAddBook = false; advanceBulkQueue() },
             onLookup = viewModel::lookupIsbn,
+            onFindCoverCandidates = viewModel::findCoverCandidates,
             onSave = { draft -> viewModel.addBook(draft) { showAddBook = false; advanceBulkQueue() } },
         )
     }
@@ -575,6 +576,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                 advanceBulkQueue()
             },
             onLookup = viewModel::lookupIsbn,
+            onFindCoverCandidates = viewModel::findCoverCandidates,
             onSave = { draft ->
                 viewModel.addBook(draft) {
                     editBook = null
@@ -2589,6 +2591,7 @@ private fun AddBookSheet(
     onDismiss: () -> Unit,
     onSkip: () -> Unit = onDismiss,
     onLookup: (String, (com.mj.homelibrary.data.remote.BookMetadata?) -> Unit) -> Unit,
+    onFindCoverCandidates: (String, String, List<String>, (List<String>) -> Unit) -> Unit,
     onSave: (BookDraft) -> Unit,
 ) {
     val editing = initialDraft != null
@@ -2602,6 +2605,9 @@ private fun AddBookSheet(
     }
     var showScanner by remember { mutableStateOf(false) }
     var pendingCoverUri by remember { mutableStateOf<Uri?>(null) }
+    var coverCandidates by remember { mutableStateOf<List<String>>(emptyList()) }
+    var findCoversInProgress by remember { mutableStateOf(false) }
+    var showCoverPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -2694,6 +2700,17 @@ private fun AddBookSheet(
                 draft = draft,
                 onDraftChange = { draft = it },
                 onPickCover = { coverPicker.launch(arrayOf("image/*")) },
+                onFindCovers = draft.isbn.validIsbnOrNull()?.let { validIsbn ->
+                    {
+                        findCoversInProgress = true
+                        onFindCoverCandidates(validIsbn, draft.title, draft.authors.split(",").map(String::trim)) { results ->
+                            findCoversInProgress = false
+                            coverCandidates = results
+                            showCoverPicker = true
+                        }
+                    }
+                },
+                findCoversInProgress = findCoversInProgress,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextFieldLine(
@@ -2814,6 +2831,17 @@ private fun AddBookSheet(
             },
         )
     }
+
+    if (showCoverPicker) {
+        CoverPickerSheet(
+            candidates = coverCandidates,
+            onDismiss = { showCoverPicker = false },
+            onSelect = { url ->
+                draft = draft.copy(coverUrl = url, coverImagePath = "")
+                showCoverPicker = false
+            },
+        )
+    }
 }
 
 @Composable
@@ -2821,6 +2849,8 @@ private fun CoverEditor(
     draft: BookDraft,
     onDraftChange: (BookDraft) -> Unit,
     onPickCover: () -> Unit,
+    onFindCovers: (() -> Unit)? = null,
+    findCoversInProgress: Boolean = false,
 ) {
     Surface(
         shape = RoundedCornerShape(18.dp),
@@ -2851,6 +2881,22 @@ private fun CoverEditor(
                     }
                     TextButton(onClick = { onDraftChange(draft.copy(coverImagePath = "", coverUrl = "")) }) {
                         Text(stringResource(R.string.action_clear_cover))
+                    }
+                    if (onFindCovers != null) {
+                        OutlinedButton(
+                            onClick = onFindCovers,
+                            enabled = !findCoversInProgress,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                        ) {
+                            if (findCoversInProgress) {
+                                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(17.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(17.dp))
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.action_find_covers))
+                        }
                     }
                 }
             }
@@ -3005,6 +3051,57 @@ private fun saveCroppedCover(
         source.recycle()
         file.absolutePath
     }.getOrNull()
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CoverPickerSheet(
+    candidates: List<String>,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.cover_picker_title), style = MaterialTheme.typography.headlineSmall)
+            Text(stringResource(R.string.cover_picker_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (candidates.isEmpty()) {
+                Text(stringResource(R.string.cover_picker_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(12.dp))
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.heightIn(max = 420.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(candidates, key = { it }) { url ->
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val pressScale by rememberPressScale(interactionSource)
+                        AsyncImage(
+                            model = url,
+                            contentDescription = stringResource(R.string.content_description_book_cover),
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(0.68f)
+                                .scale(pressScale)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                                .clickable(interactionSource = interactionSource, indication = LocalIndication.current) { onSelect(url) },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
 
 @Composable
 private fun MetadataLoadedCard(draft: BookDraft) {

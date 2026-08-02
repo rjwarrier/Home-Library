@@ -57,6 +57,10 @@
     <string name="action_continue_manual">Continue manually</string>
     <string name="action_choose_cover">Choose cover</string>
     <string name="action_clear_cover">Clear cover</string>
+    <string name="action_find_covers">Find covers</string>
+    <string name="cover_picker_title">Choose a cover</string>
+    <string name="cover_picker_body">Pulled from Open Library and Google Books, including other editions.</string>
+    <string name="cover_picker_empty">No cover images found for this book.</string>
     <string name="action_use_original">Use original</string>
     <string name="action_use_cropped">Use cropped</string>
     <string name="action_back">Back</string>
