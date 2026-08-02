@@ -552,6 +552,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             mainGenreOptions = librarySettings.mainGenres,
             subGenreOptions = librarySettings.subGenres,
             lookupInProgress = state.transient.lookupInProgress,
+            savingInProgress = state.transient.savingBookInProgress,
             bulkProgress = bulkProgress,
             onDismiss = { showAddBook = false; advanceBulkQueue() },
             onSkip = { showAddBook = false; advanceBulkQueue() },
@@ -581,6 +582,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             mainGenreOptions = librarySettings.mainGenres,
             subGenreOptions = librarySettings.subGenres,
             lookupInProgress = state.transient.lookupInProgress,
+            savingInProgress = state.transient.savingBookInProgress,
             bulkProgress = bulkProgress.takeIf { enrichFromScan },
             onDismiss = {
                 editBook = null
@@ -2711,6 +2713,7 @@ private fun AddBookSheet(
     mainGenreOptions: List<String>,
     subGenreOptions: List<String>,
     lookupInProgress: Boolean,
+    savingInProgress: Boolean,
     bulkProgress: Pair<Int, Int>? = null,
     onDismiss: () -> Unit,
     onSkip: () -> Unit = onDismiss,
@@ -2976,10 +2979,25 @@ private fun AddBookSheet(
             ShelfLocationField(draft = draft, locations = locations, onDraftChange = { draft = it })
             Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+                TextButton(onClick = onDismiss, enabled = !savingInProgress) { Text(stringResource(R.string.action_cancel)) }
                 Spacer(Modifier.width(8.dp))
-                Button(onClick = { onSave(draft) }, shape = RoundedCornerShape(14.dp), modifier = Modifier.height(44.dp)) {
-                    Text(stringResource(R.string.action_save_book))
+                Button(
+                    onClick = { onSave(draft) },
+                    enabled = !savingInProgress,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.height(44.dp),
+                ) {
+                    if (savingInProgress) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.action_saving))
+                    } else {
+                        Text(stringResource(R.string.action_save_book))
+                    }
                 }
             }
             Spacer(Modifier.height(20.dp))

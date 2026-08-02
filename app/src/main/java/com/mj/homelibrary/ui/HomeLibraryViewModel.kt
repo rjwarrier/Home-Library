@@ -226,13 +226,14 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
                 transient.update { it.copy(errorRes = R.string.duplicate_isbn_warning) }
                 return@launch
             }
+            transient.update { it.copy(savingBookInProgress = true) }
             repository.saveBook(
                 book = draft.toEntity(),
                 room = draft.room,
                 unit = draft.unit,
                 shelf = draft.shelf,
             )
-            transient.update { it.copy(errorRes = null) }
+            transient.update { it.copy(errorRes = null, savingBookInProgress = false) }
             onSaved()
         }
     }
@@ -473,6 +474,7 @@ data class LibraryFilters(
 
 data class TransientState(
     val lookupInProgress: Boolean = false,
+    val savingBookInProgress: Boolean = false,
     val errorRes: Int? = null,
     val statusRes: Int? = null,
     val failedLookupIsbn: String? = null,
