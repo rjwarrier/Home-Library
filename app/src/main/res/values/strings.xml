@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Granthapura</string>
+    <string name="app_name">Home Library</string>
     <string name="nav_library">Library</string>
     <string name="nav_shelves">Shelves</string>
     <string name="nav_loans">Loans</string>
@@ -224,7 +224,7 @@
     <string name="settings_loan_reminder_due_day">On the due day</string>
     <string name="settings_loan_reminder_days_before">%1$d days before due</string>
     <string name="settings_help_about">Help and about</string>
-    <string name="settings_help_subtitle">Learn how to use Granthapura</string>
+    <string name="settings_help_subtitle">Learn how to use Home Library</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_theme_system">System</string>
     <string name="settings_theme_light">Light</string>
@@ -261,8 +261,8 @@
     <string name="settings_font_scale_large">Large</string>
     <string name="settings_font_scale_larger">Larger</string>
     <string name="help_screen_title">Help and about</string>
-    <string name="help_welcome_title">Welcome to Granthapura</string>
-    <string name="help_welcome_body">Granthapura is a local home-library manager for cataloging books, shelves, cover images, reading status, ratings, and books lent to other people.</string>
+    <string name="help_welcome_title">Welcome to Home Library</string>
+    <string name="help_welcome_body">Home Library is a local home-library manager for cataloging books, shelves, cover images, reading status, ratings, and books lent to other people.</string>
     <string name="help_start_here">Start here</string>
     <string name="help_cd_collapse">Collapse</string>
     <string name="help_cd_expand">Expand</string>
@@ -285,7 +285,7 @@
     <string name="help_section_add_books_content">Use Add book from Library to scan an ISBN or add a book manually. Title is the only required field; authors, language, publisher, year, pages, notes, synopsis, format, read status, rating, and shelf location can all be filled or edited later.</string>
     <string name="help_section_isbn_title">ISBN lookup</string>
     <string name="help_section_isbn_preview">Lookup tries to fill the strongest metadata available for a book.</string>
-    <string name="help_section_isbn_content">When an ISBN is valid, Granthapura can look up title, subtitle, authors, publisher, year, page count, language, synopsis, and cover candidates. If a scanned ISBN already exists, empty fields can be filled from lookup without overwriting details you already edited.</string>
+    <string name="help_section_isbn_content">When an ISBN is valid, Home Library can look up title, subtitle, authors, publisher, year, page count, language, synopsis, and cover candidates. If a scanned ISBN already exists, empty fields can be filled from lookup without overwriting details you already edited.</string>
     <string name="help_section_covers_ratings_title">Covers and ratings</string>
     <string name="help_section_covers_ratings_preview">Replace covers, crop images, and star-rate books.</string>
     <string name="help_section_covers_ratings_content">Book details and edit screens let you change the cover image, use a lookup cover URL, choose a local image, crop the cover frame, and set a star rating. Ratings are used by sorting and make favorites easier to spot.</string>
@@ -312,8 +312,8 @@
     <string name="help_footer_share">Share</string>
     <string name="help_footer_package">Package</string>
     <string name="help_package_copied">Package name copied</string>
-    <string name="help_share_home_library">Share Granthapura</string>
-    <string name="help_share_home_library_text">Granthapura - a local home-library app for cataloging books, shelves, covers, ratings, and loans.</string>
+    <string name="help_share_home_library">Share Home Library</string>
+    <string name="help_share_home_library_text">Home Library - a local home-library app for cataloging books, shelves, covers, ratings, and loans.</string>
     <string name="privacy_local_title">Local catalog</string>
     <string name="privacy_local_body">Books, shelves, loans, notes, ratings, and locally selected covers are stored on this device in the app database and app storage.</string>
     <string name="privacy_lookup_title">ISBN lookup</string>

@@ -3865,12 +3865,20 @@ private fun LoanDetailCard(item: BookListItem, loan: LoanEntity, onReturn: (Loan
 private fun RatingEditor(rating: Float, onRatingChange: (Float) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(stringResource(R.string.rating_label), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        RatingRow(rating = rating, onRatingChange = onRatingChange)
+        Surface(
+            color = MaterialTheme.colorScheme.tertiaryContainer,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                RatingRow(rating = rating, onRatingChange = onRatingChange, starSize = 32.dp)
+            }
+        }
     }
 }
 
 @Composable
-private fun RatingRow(rating: Float, onRatingChange: ((Float) -> Unit)? = null) {
+private fun RatingRow(rating: Float, onRatingChange: ((Float) -> Unit)? = null, starSize: Dp = 24.dp) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         repeat(5) { index ->
             val value = (index + 1).toFloat()
@@ -3881,7 +3889,7 @@ private fun RatingRow(rating: Float, onRatingChange: ((Float) -> Unit)? = null) 
                 contentDescription = null,
                 tint = if (filled) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier
-                    .size(24.dp)
+                    .size(starSize)
                     .scale(starScale)
                     .then(if (onRatingChange != null) Modifier.clickable { onRatingChange(value) } else Modifier),
             )
