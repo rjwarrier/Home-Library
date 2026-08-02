@@ -6,6 +6,9 @@ import com.mj.homelibrary.data.normalizedIsbn
 import com.mj.homelibrary.data.normalizedIsbn10OrNull
 import com.mj.homelibrary.data.normalizedIsbn13OrNull
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -13,69 +16,87 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentHashMap
 
 class BookLookupService(private val context: Context) {
+    private val metadataCache = ConcurrentHashMap<String, CacheEntry<BookMetadata>>()
+    private val coverCandidateCache = ConcurrentHashMap<String, CacheEntry<List<String>>>()
+
     suspend fun lookup(isbn: String): Result<BookMetadata> = withContext(Dispatchers.IO) {
         runCatching {
             val normalized = isbn.normalizedIsbn()
             if (normalized.isBlank()) error("ISBN is blank")
-            val openLibrary = runCatching { lookupOpenLibrary(normalized) }.getOrNull()
-            val googleBooks = runCatching { lookupGoogleBooks(normalized) }.getOrNull()
-            openLibrary.mergeWith(googleBooks) ?: error("No metadata found")
+            metadataCache.freshValue(normalized)?.let { return@runCatching it }
+            val metadata = coroutineScope {
+                val openLibrary = async { runCatching { lookupOpenLibrary(normalized) }.getOrNull() }
+                val googleBooks = async { runCatching { lookupGoogleBooks(normalized) }.getOrNull() }
+                openLibrary.await().mergeWith(googleBooks.await())
+            } ?: error("No metadata found")
+            metadataCache[normalized] = CacheEntry(metadata)
+            metadata
         }
     }
 
     suspend fun searchCoverCandidates(isbn: String, title: String, authors: List<String>): List<String> =
         withContext(Dispatchers.IO) {
             val normalized = isbn.normalizedIsbn()
-            val candidates = LinkedHashSet<String>()
+            val cacheKey = listOf(normalized, title.trim().lowercase(), authors.firstOrNull().orEmpty().trim().lowercase())
+                .joinToString("|")
+            coverCandidateCache.freshValue(cacheKey)?.let { return@withContext it }
 
-            runCatching {
-                getJson("https://openlibrary.org/isbn/$normalized.json")
-                    ?.optJSONArray("covers")
-                    ?.let { array -> List(array.length()) { array.optLong(it) } }
-                    ?.filter { it > 0L }
-                    ?.forEach { candidates += "https://covers.openlibrary.org/b/id/$it-L.jpg" }
-            }
-
-            runCatching {
-                val encoded = URLEncoder.encode(normalized, StandardCharsets.UTF_8.name())
-                getJson("https://openlibrary.org/search.json?isbn=$encoded&fields=cover_i")
-                    ?.optJSONArray("docs")
-                    ?.let { array -> List(array.length()) { array.optJSONObject(it) } }
-                    ?.mapNotNull { it?.optLong("cover_i")?.takeIf { id -> id > 0L } }
-                    ?.forEach { candidates += "https://covers.openlibrary.org/b/id/$it-L.jpg" }
-            }
-
-            runCatching {
-                val encoded = URLEncoder.encode("isbn:$normalized", StandardCharsets.UTF_8.name())
-                getJson("https://www.googleapis.com/books/v1/volumes?q=$encoded")
-                    ?.optJSONArray("items")
-                    ?.let { array -> List(array.length()) { array.optJSONObject(it) } }
-                    ?.mapNotNull { it?.optJSONObject("volumeInfo")?.optJSONObject("imageLinks").bestGoogleCoverUrl() }
-                    ?.forEach { candidates += it }
-            }
-
-            if (title.isNotBlank()) {
-                runCatching {
-                    val query = buildString {
-                        append("intitle:")
-                        append(title)
-                        authors.firstOrNull()?.let { append("+inauthor:"); append(it) }
-                    }
-                    val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
-                    getJson("https://www.googleapis.com/books/v1/volumes?q=$encoded&maxResults=$MAX_TITLE_SEARCH_RESULTS")
-                        ?.optJSONArray("items")
-                        ?.let { array -> List(array.length()) { array.optJSONObject(it) } }
-                        ?.mapNotNull { it?.optJSONObject("volumeInfo")?.optJSONObject("imageLinks").bestGoogleCoverUrl() }
-                        ?.forEach { candidates += it }
+            val candidateGroups = coroutineScope {
+                val directOpenLibrary = async {
+                    if (normalized.isBlank()) return@async emptyList()
+                    runCatching {
+                        getJson("https://openlibrary.org/isbn/$normalized.json")
+                            ?.optJSONArray("covers")
+                            ?.let { array -> List(array.length()) { array.optLong(it) } }
+                            ?.filter { it > 0L }
+                            ?.map { "https://covers.openlibrary.org/b/id/$it-L.jpg" }
+                            .orEmpty()
+                    }.getOrDefault(emptyList())
                 }
+                val openLibrarySearch = async {
+                    if (normalized.isBlank()) return@async emptyList()
+                    runCatching {
+                        val encoded = URLEncoder.encode(normalized, StandardCharsets.UTF_8.name())
+                        getJson("https://openlibrary.org/search.json?isbn=$encoded&fields=cover_i")
+                            ?.optJSONArray("docs")
+                            ?.let { array -> List(array.length()) { array.optJSONObject(it) } }
+                            ?.mapNotNull { it?.optLong("cover_i")?.takeIf { id -> id > 0L } }
+                            ?.map { "https://covers.openlibrary.org/b/id/$it-L.jpg" }
+                            .orEmpty()
+                    }.getOrDefault(emptyList())
+                }
+                val googleIsbnSearch = async {
+                    if (normalized.isBlank()) return@async emptyList()
+                    runCatching {
+                        val encoded = URLEncoder.encode("isbn:$normalized", StandardCharsets.UTF_8.name())
+                        googleCoverUrls("https://www.googleapis.com/books/v1/volumes?q=$encoded")
+                    }.getOrDefault(emptyList())
+                }
+                val googleTitleSearch = async {
+                    if (title.isBlank()) return@async emptyList()
+                    runCatching {
+                        val query = buildString {
+                            append("intitle:")
+                            append(title)
+                            authors.firstOrNull()?.let { append("+inauthor:"); append(it) }
+                        }
+                        val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
+                        googleCoverUrls(
+                            "https://www.googleapis.com/books/v1/volumes?q=$encoded&maxResults=$MAX_TITLE_SEARCH_RESULTS",
+                        )
+                    }.getOrDefault(emptyList())
+                }
+                listOf(directOpenLibrary, openLibrarySearch, googleIsbnSearch, googleTitleSearch).awaitAll()
             }
-
-            candidates.take(MAX_COVER_CANDIDATES)
+            val candidates = candidateGroups.flatten().distinct().take(MAX_COVER_CANDIDATES)
+            coverCandidateCache[cacheKey] = CacheEntry(candidates)
+            candidates
         }
 
-    private fun lookupOpenLibrary(isbn: String): BookMetadata? {
+    private suspend fun lookupOpenLibrary(isbn: String): BookMetadata? {
         val url = "https://openlibrary.org/isbn/$isbn.json"
         val json = getJson(url) ?: return null
         val title = json.optString("title").takeIf(String::isNotBlank) ?: return null
@@ -84,12 +105,14 @@ class BookLookupService(private val context: Context) {
             ?.optString("key")
             ?.takeIf(String::isNotBlank)
             ?.let { getJson("https://openlibrary.org$it.json") }
-        val authors = json.optJSONArray("authors")?.let { authorArray ->
-            List(authorArray.length()) { index ->
-                val key = authorArray.optJSONObject(index)?.optString("key").orEmpty()
-                openLibraryAuthorName(key)
-            }.filter(String::isNotBlank).distinct()
+        val authorKeys = json.optJSONArray("authors")?.let { authorArray ->
+            List(authorArray.length()) { index -> authorArray.optJSONObject(index)?.optString("key").orEmpty() }
+                .filter(String::isNotBlank)
+                .distinct()
         }.orEmpty()
+        val authors = coroutineScope {
+            authorKeys.map { key -> async { openLibraryAuthorName(key) } }.awaitAll()
+        }.filter(String::isNotBlank).distinct()
         val publishers = json.optJSONArray("publishers").toStringList()
         val publishDate = json.optString("publish_date")
         val coverId = json.optJSONArray("covers")?.optLong(0)?.takeIf { it > 0L }
@@ -189,6 +212,20 @@ class BookLookupService(private val context: Context) {
         }
     }
 
+    private fun googleCoverUrls(url: String): List<String> =
+        getJson(url)
+            ?.optJSONArray("items")
+            ?.let { array -> List(array.length()) { array.optJSONObject(it) } }
+            ?.mapNotNull { it?.optJSONObject("volumeInfo")?.optJSONObject("imageLinks").bestGoogleCoverUrl() }
+            .orEmpty()
+
+    private fun <T> ConcurrentHashMap<String, CacheEntry<T>>.freshValue(key: String): T? {
+        val entry = get(key) ?: return null
+        if (entry.expiresAtEpochMillis > System.currentTimeMillis()) return entry.value
+        remove(key, entry)
+        return null
+    }
+
     private fun BookMetadata?.mergeWith(fallback: BookMetadata?): BookMetadata? {
         if (this == null) return fallback
         if (fallback == null) return this
@@ -275,5 +312,11 @@ class BookLookupService(private val context: Context) {
         const val MAX_TAGS = 12
         const val MAX_COVER_CANDIDATES = 8
         const val MAX_TITLE_SEARCH_RESULTS = 4
+        const val CACHE_TTL_MILLIS = 6 * 60 * 60 * 1000L
     }
+
+    private data class CacheEntry<T>(
+        val value: T,
+        val expiresAtEpochMillis: Long = System.currentTimeMillis() + CACHE_TTL_MILLIS,
+    )
 }
