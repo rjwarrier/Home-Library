@@ -51,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,10 +70,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import com.mj.homelibrary.R
 import com.mj.homelibrary.data.validIsbnOrNull
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 private data class ScannerThemeColors(
     val background: Color,
@@ -299,17 +304,61 @@ private fun ScannerReticle(modifier: Modifier = Modifier) {
 
 private const val RescanCooldownMillis = 1500L
 
+private class ScanGate {
+    private var lastCode: String? = null
+    private var lastHandledAt: Long = 0L
+
+    @Synchronized
+    fun canHandle(code: String): Boolean {
+        val now = System.currentTimeMillis()
+        val allowed = code != lastCode || now - lastHandledAt > RescanCooldownMillis
+        if (allowed) {
+            lastCode = code
+            lastHandledAt = now
+        }
+        return allowed
+    }
+}
+
+private class CameraBarcodeResources {
+    var provider: ProcessCameraProvider? = null
+    var preview: Preview? = null
+    var analysis: ImageAnalysis? = null
+
+    fun release() {
+        analysis?.clearAnalyzer()
+        val useCases = listOfNotNull(preview, analysis).toTypedArray()
+        if (useCases.isNotEmpty()) provider?.unbind(*useCases)
+        provider = null
+        preview = null
+        analysis = null
+    }
+}
+
 @Composable
 private fun CameraBarcodePreview(torchOn: Boolean, onBarcode: (String) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var lastCode by remember { mutableStateOf<String?>(null) }
-    var lastHandledAt by remember { mutableStateOf(0L) }
     var camera by remember { mutableStateOf<Camera?>(null) }
-    val scanner = remember { BarcodeScanning.getClient() }
+    val currentOnBarcode by rememberUpdatedState(onBarcode)
+    val scanGate = remember { ScanGate() }
+    val resources = remember { CameraBarcodeResources() }
+    val disposed = remember { AtomicBoolean(false) }
+    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    val scanner = remember {
+        val options = BarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_EAN_13)
+            .build()
+        BarcodeScanning.getClient(options)
+    }
 
     DisposableEffect(Unit) {
-        onDispose { scanner.close() }
+        onDispose {
+            disposed.set(true)
+            resources.release()
+            scanner.close()
+            analysisExecutor.shutdown()
+        }
     }
 
     LaunchedEffect(torchOn, camera) {
@@ -327,6 +376,7 @@ private fun CameraBarcodePreview(torchOn: Boolean, onBarcode: (String) -> Unit) 
                 providerFuture.addListener(
                     {
                         val provider = providerFuture.get()
+                        if (disposed.get()) return@addListener
                         val preview = Preview.Builder().build().also {
                             it.setSurfaceProvider(surfaceProvider)
                         }
@@ -334,25 +384,20 @@ private fun CameraBarcodePreview(torchOn: Boolean, onBarcode: (String) -> Unit) 
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
                             .also { imageAnalysis ->
-                                imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(context)) { imageProxy ->
+                                imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
                                     processBarcodeImage(
                                         imageProxy = imageProxy,
                                         scanner = scanner,
-                                        canHandle = { code ->
-                                            val now = System.currentTimeMillis()
-                                            val allowed = code != lastCode || now - lastHandledAt > RescanCooldownMillis
-                                            if (allowed) {
-                                                lastCode = code
-                                                lastHandledAt = now
-                                            }
-                                            allowed
-                                        },
-                                        onBarcode = onBarcode,
+                                        canHandle = scanGate::canHandle,
+                                        onBarcode = currentOnBarcode,
                                     )
                                 }
                             }
 
                         provider.unbindAll()
+                        resources.provider = provider
+                        resources.preview = preview
+                        resources.analysis = analysis
                         camera = provider.bindToLifecycle(
                             lifecycleOwner,
                             CameraSelector.DEFAULT_BACK_CAMERA,
