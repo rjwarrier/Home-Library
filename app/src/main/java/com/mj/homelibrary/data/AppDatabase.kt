@@ -18,7 +18,7 @@ import com.mj.homelibrary.data.entity.LocationEntity
 
 @Database(
     entities = [BookEntity::class, LocationEntity::class, LoanEntity::class, BorrowerEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -66,9 +66,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_books_readStatusCode` ON `books` (`readStatusCode`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_books_mainGenre` ON `books` (`mainGenre`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_books_addedDateEpochMillis` ON `books` (`addedDateEpochMillis`)")
+            }
+        }
+
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "home-library.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .fallbackToDestructiveMigration(false)
                 .build()
     }

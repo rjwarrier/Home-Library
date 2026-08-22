@@ -12,15 +12,15 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import com.mj.homelibrary.data.BoundedLruCache
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.ConcurrentHashMap
 
 class BookLookupService(private val context: Context) {
-    private val metadataCache = ConcurrentHashMap<String, CacheEntry<BookMetadata>>()
-    private val coverCandidateCache = ConcurrentHashMap<String, CacheEntry<List<String>>>()
+    private val metadataCache = BoundedLruCache<String, CacheEntry<BookMetadata>>(METADATA_CACHE_MAX_ENTRIES)
+    private val coverCandidateCache = BoundedLruCache<String, CacheEntry<List<String>>>(COVER_CANDIDATE_CACHE_MAX_ENTRIES)
 
     suspend fun lookup(isbn: String): Result<BookMetadata> = withContext(Dispatchers.IO) {
         runCatching {
@@ -32,7 +32,7 @@ class BookLookupService(private val context: Context) {
                 val googleBooks = async { runCatching { lookupGoogleBooks(normalized) }.getOrNull() }
                 openLibrary.await().mergeWith(googleBooks.await())
             } ?: error("No metadata found")
-            metadataCache[normalized] = CacheEntry(metadata)
+            metadataCache.put(normalized, CacheEntry(metadata))
             metadata
         }
     }
@@ -92,7 +92,7 @@ class BookLookupService(private val context: Context) {
                 listOf(directOpenLibrary, openLibrarySearch, googleIsbnSearch, googleTitleSearch).awaitAll()
             }
             val candidates = candidateGroups.flatten().distinct().take(MAX_COVER_CANDIDATES)
-            coverCandidateCache[cacheKey] = CacheEntry(candidates)
+            coverCandidateCache.put(cacheKey, CacheEntry(candidates))
             candidates
         }
 
@@ -219,10 +219,10 @@ class BookLookupService(private val context: Context) {
             ?.mapNotNull { it?.optJSONObject("volumeInfo")?.optJSONObject("imageLinks").bestGoogleCoverUrl() }
             .orEmpty()
 
-    private fun <T> ConcurrentHashMap<String, CacheEntry<T>>.freshValue(key: String): T? {
+    private fun <T> BoundedLruCache<String, CacheEntry<T>>.freshValue(key: String): T? {
         val entry = get(key) ?: return null
         if (entry.expiresAtEpochMillis > System.currentTimeMillis()) return entry.value
-        remove(key, entry)
+        remove(key)
         return null
     }
 
@@ -313,6 +313,8 @@ class BookLookupService(private val context: Context) {
         const val MAX_COVER_CANDIDATES = 8
         const val MAX_TITLE_SEARCH_RESULTS = 4
         const val CACHE_TTL_MILLIS = 6 * 60 * 60 * 1000L
+        const val METADATA_CACHE_MAX_ENTRIES = 300
+        const val COVER_CANDIDATE_CACHE_MAX_ENTRIES = 300
     }
 
     private data class CacheEntry<T>(

@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,6 +58,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -70,7 +73,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AssignmentReturn
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.BarChart
@@ -83,6 +86,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudDone
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Draw
@@ -160,6 +164,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -189,6 +194,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -211,6 +218,9 @@ import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
 import com.mj.homelibrary.data.validIsbnOrNull
+import com.mj.homelibrary.ui.theme.ExpressiveMotion
+import com.mj.homelibrary.ui.theme.expressiveClickable
+import com.mj.homelibrary.ui.theme.m3TabTransition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -267,6 +277,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     var enrichExistingBookId by remember { mutableStateOf<Long?>(null) }
     var selectedBook by remember { mutableStateOf<BookListItem?>(null) }
     var editBook by remember { mutableStateOf<BookListItem?>(null) }
+    var cloneBook by remember { mutableStateOf<BookListItem?>(null) }
     var moveBook by remember { mutableStateOf<BookListItem?>(null) }
     var deleteBook by remember { mutableStateOf<BookEntity?>(null) }
     var auditShelf by remember { mutableStateOf<LocationEntity?>(null) }
@@ -411,7 +422,9 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
         ) {
             AnimatedContent(
                 targetState = selectedTab,
-                transitionSpec = { fadeIn(tween(220, delayMillis = 90)) togetherWith fadeOut(tween(90)) },
+                transitionSpec = {
+                    m3TabTransition(isForward = targetState.ordinal > initialState.ordinal)
+                },
                 label = "tabContent",
             ) { tab ->
             when (tab) {
@@ -448,7 +461,6 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                 )
                 HomeTab.Loans -> LoansScreen(
                     state = state,
-                    onNewLoan = { showNewLoanFlow = true },
                     onReturn = { returnLoan = it },
                     onBookClick = { selectedBook = it },
                 )
@@ -492,6 +504,8 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                     onBackupReminderDaysChange = viewModel::setBackupReminderDays,
                     onExportJson = viewModel::exportJson,
                     onExportCsv = viewModel::exportCsv,
+                    onExportHtmlCatalog = viewModel::exportHtmlCatalog,
+                    onExportPdfCatalog = viewModel::exportPdfCatalog,
                     onExportCsvTemplate = viewModel::exportCsvTemplate,
                     onImportJson = viewModel::importJson,
                     onImportCsv = viewModel::importCsv,
@@ -547,7 +561,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             seriesSuggestions = seriesSuggestions,
             locations = state.locations,
             mainGenreOptions = librarySettings.mainGenres,
-            subGenreOptions = librarySettings.subGenres,
+            subGenresByMainGenre = librarySettings.subGenresByMainGenre,
             primaryLanguage = librarySettings.primaryLanguage,
             lookupInProgress = state.transient.lookupInProgress,
             savingInProgress = state.transient.savingBookInProgress,
@@ -578,7 +592,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             seriesSuggestions = seriesSuggestions,
             locations = state.locations,
             mainGenreOptions = librarySettings.mainGenres,
-            subGenreOptions = librarySettings.subGenres,
+            subGenresByMainGenre = librarySettings.subGenresByMainGenre,
             primaryLanguage = librarySettings.primaryLanguage,
             lookupInProgress = state.transient.lookupInProgress,
             savingInProgress = state.transient.savingBookInProgress,
@@ -607,6 +621,48 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
         )
     }
 
+    cloneBook?.let { item ->
+        AddBookSheet(
+            manualEntry = true,
+            initialIsbn = "",
+            initialDraft = item.book.toBookDraft().copy(
+                id = 0L,
+                isbn = "",
+                coverImagePath = "",
+                readStatusCode = ReadStatusCode.Unread.code,
+                rating = 0f,
+                positionNote = "",
+                purchaseDate = "",
+                cost = "",
+                signedCopy = false,
+                room = item.location?.room.orEmpty(),
+                unit = item.location?.unit.orEmpty(),
+                shelf = item.location?.shelf.orEmpty(),
+            ),
+            autoLookup = false,
+            fillOnlyEmpty = false,
+            authorSuggestions = authorSuggestions,
+            tagSuggestions = tagSuggestions,
+            seriesSuggestions = seriesSuggestions,
+            locations = state.locations,
+            mainGenreOptions = librarySettings.mainGenres,
+            subGenresByMainGenre = librarySettings.subGenresByMainGenre,
+            primaryLanguage = librarySettings.primaryLanguage,
+            lookupInProgress = state.transient.lookupInProgress,
+            savingInProgress = state.transient.savingBookInProgress,
+            onDismiss = { cloneBook = null },
+            onSkip = { cloneBook = null },
+            onLookup = viewModel::lookupIsbn,
+            onSilentLookup = viewModel::lookupIsbnSilently,
+            onFindCoverCandidates = viewModel::findCoverCandidates,
+            onSave = { draft ->
+                viewModel.addBook(draft) {
+                    cloneBook = null
+                }
+            },
+        )
+    }
+
     selectedBook?.let { item ->
         BookDetailSheet(
             item = item,
@@ -615,6 +671,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             onLoan = { loanFlowBook = item.book },
             onReturn = { returnLoan = it },
             onEdit = { editBook = item },
+            onClone = { cloneBook = item },
             onMove = { moveBook = item },
             onDelete = { deleteBook = item.book },
             onRate = { rating -> viewModel.updateBookRating(item.book.id, rating) },
@@ -1177,7 +1234,7 @@ private fun rememberDismissKeyboard(): () -> Unit {
 @Composable
 private fun rememberPressScale(interactionSource: InteractionSource): androidx.compose.runtime.State<Float> {
     val isPressed by interactionSource.collectIsPressedAsState()
-    return animateFloatAsState(if (isPressed) 0.94f else 1f, animationSpec = ExpressiveSpring, label = "pressScale")
+    return animateFloatAsState(if (isPressed) 0.94f else 1f, animationSpec = ExpressiveMotion.BouncyPressSpring, label = "pressScale")
 }
 
 @Composable
@@ -1666,7 +1723,6 @@ private fun Spine(item: BookListItem, onClick: () -> Unit) {
 @Composable
 private fun LoansScreen(
     state: HomeLibraryUiState,
-    onNewLoan: () -> Unit,
     onReturn: (LoanEntity) -> Unit,
     onBookClick: (BookListItem) -> Unit,
 ) {
@@ -1678,21 +1734,6 @@ private fun LoansScreen(
         ScreenHeader(
             titleRes = R.string.screen_loans,
             meta = stringResource(R.string.loans_meta, state.activeLoans.size, overdueCount, borrowers.size),
-            actions = {
-                Button(
-                    onClick = onNewLoan,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ),
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                ) {
-                    Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.action_new_loan))
-                }
-            },
         )
         if (state.activeLoans.isEmpty()) {
             DesignedEmptyState(
@@ -1874,10 +1915,6 @@ private fun StatsScreen(
     state: HomeLibraryUiState,
     readingGoal: Int,
 ) {
-    val readThisYear = state.stats.readThisYear
-    val reading = state.allBooks.count { it.readStatusCode == ReadStatusCode.Reading.code }
-    val unread = state.allBooks.count { it.readStatusCode == ReadStatusCode.Unread.code }
-
     ContentColumn {
         ScreenHeader(titleRes = R.string.screen_stats, meta = stringResource(R.string.stats_meta))
         LazyColumn(
@@ -1886,86 +1923,249 @@ private fun StatsScreen(
             contentPadding = PaddingValues(bottom = dimensionResource(R.dimen.space_xl)),
         ) {
             item {
-                StatsHero(total = state.stats.totalBooks, onLoan = state.stats.activeLoans)
+                AnalyticsOverviewGrid(stats = state.stats)
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_md))) {
-                    StatTile(R.string.stats_finished, state.stats.finishedBooks, MaterialTheme.colorScheme.secondaryContainer, Modifier.weight(1f))
-                    StatTile(R.string.stats_reading, reading, MaterialTheme.colorScheme.tertiaryContainer, Modifier.weight(1f))
-                    StatTile(R.string.stats_unread, unread, MaterialTheme.colorScheme.surfaceVariant, Modifier.weight(1f))
+                ReadingStatusSegmentedCard(stats = state.stats)
+            }
+            if (state.stats.topAuthors.isNotEmpty()) {
+                item {
+                    TopAuthorsLeaderboardCard(authors = state.stats.topAuthors)
                 }
             }
-            if (state.stats.totalLibraryValue > 0.0) {
-                item { LibraryValueCard(state.stats.totalLibraryValue) }
-            }
-            item { LanguageBarCard(state.stats.languages) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_md))) {
                     GenreBarsCard(state.stats.genres, Modifier.weight(1.35f))
-                    ReadingRingCard(readThisYear, readingGoal, Modifier.weight(1f))
+                    ReadingRingCard(state.stats.readThisYear, readingGoal, Modifier.weight(1f))
                 }
             }
-            item {
-                MostBorrowedCard(state.stats.mostBorrowed)
+            if (state.stats.formatsBreakdown.isNotEmpty()) {
+                item {
+                    FormatDistributionCard(formats = state.stats.formatsBreakdown)
+                }
             }
+            if (state.stats.decadesBreakdown.isNotEmpty()) {
+                item {
+                    PublicationDecadesCard(decades = state.stats.decadesBreakdown)
+                }
+            }
+            item { LanguageBarCard(state.stats.languages) }
+            item { MostBorrowedCard(state.stats.mostBorrowed) }
         }
     }
 }
 
 @Composable
-private fun StatsHero(total: Int, onLoan: Int) {
+private fun AnalyticsOverviewGrid(stats: LibraryStats) {
     var animateIn by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { animateIn = true }
-    val animatedTotal by animateIntAsState(if (animateIn) total else 0, animationSpec = tween(900), label = "totalBooksCount")
-    val animatedOnLoan by animateIntAsState(if (animateIn) onLoan else 0, animationSpec = tween(900), label = "onLoanCount")
-    Card(
-        shape = RoundedCornerShape(26.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(20.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom,
+    val animatedTotal by animateIntAsState(
+        if (animateIn) stats.totalBooks else 0,
+        animationSpec = tween(750, easing = ExpressiveMotion.EmphasizedDecelerate),
+        label = "totalBooksCount"
+    )
+    val animatedPages by animateIntAsState(
+        if (animateIn) stats.totalPages else 0,
+        animationSpec = tween(750, easing = ExpressiveMotion.EmphasizedDecelerate),
+        label = "totalPagesCount"
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
         ) {
-            Column {
-                Text(stringResource(R.string.stats_total_books_eyebrow), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.4.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f))
-                Text(animatedTotal.toString(), style = MaterialTheme.typography.displayLarge)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Column {
+                    Text(stringResource(R.string.stats_total_books_eyebrow), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.4.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f))
+                    Text(animatedTotal.toString(), style = MaterialTheme.typography.displayLarge)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(stringResource(R.string.stats_on_loan), style = MaterialTheme.typography.labelMedium)
+                    Text(stats.activeLoans.toString(), style = MaterialTheme.typography.headlineSmall)
+                }
             }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(stringResource(R.string.stats_on_loan), style = MaterialTheme.typography.labelMedium)
-                Text(animatedOnLoan.toString(), style = MaterialTheme.typography.headlineSmall)
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            MetricTile(
+                icon = Icons.Outlined.Payments,
+                label = stringResource(R.string.stats_library_value),
+                value = if (stats.totalLibraryValue > 0.0) stats.totalLibraryValue.displayCost() else "—",
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.weight(1f)
+            )
+            MetricTile(
+                icon = Icons.Outlined.Description,
+                label = "Total Pages",
+                value = if (animatedPages > 0) String.format("%,d", animatedPages) else "—",
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                modifier = Modifier.weight(1f)
+            )
+            MetricTile(
+                icon = Icons.Outlined.Star,
+                label = "Avg Rating",
+                value = if (stats.averageRating > 0f) String.format("%.1f ★", stats.averageRating) else "—",
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun MetricTile(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        color = color,
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun ReadingStatusSegmentedCard(stats: LibraryStats) {
+    val total = stats.totalBooks.coerceAtLeast(1)
+    val finishedPct = (stats.finishedBooks * 100) / total
+    val readingPct = (stats.readingBooks * 100) / total
+    val unreadPct = (stats.unreadBooks * 100) / total
+    val abandonedPct = (stats.abandonedBooks * 100) / total
+
+    ChartCard(title = R.string.screen_stats) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Reading Status Breakdown", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(7.dp)),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                if (stats.finishedBooks > 0) {
+                    Box(modifier = Modifier.weight(stats.finishedBooks / total.toFloat()).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
+                }
+                if (stats.readingBooks > 0) {
+                    Box(modifier = Modifier.weight(stats.readingBooks / total.toFloat()).fillMaxHeight().background(MaterialTheme.colorScheme.tertiary))
+                }
+                if (stats.unreadBooks > 0) {
+                    Box(modifier = Modifier.weight(stats.unreadBooks / total.toFloat()).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
+                }
+                if (stats.abandonedBooks > 0) {
+                    Box(modifier = Modifier.weight(stats.abandonedBooks / total.toFloat()).fillMaxHeight().background(MaterialTheme.colorScheme.error))
+                }
+            }
+
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                StatusLegendItem(color = MaterialTheme.colorScheme.primary, label = "Read", count = stats.finishedBooks, pct = finishedPct)
+                StatusLegendItem(color = MaterialTheme.colorScheme.tertiary, label = "Reading", count = stats.readingBooks, pct = readingPct)
+                StatusLegendItem(color = MaterialTheme.colorScheme.outlineVariant, label = "Unread", count = stats.unreadBooks, pct = unreadPct)
+                if (stats.abandonedBooks > 0) {
+                    StatusLegendItem(color = MaterialTheme.colorScheme.error, label = "Abandoned", count = stats.abandonedBooks, pct = abandonedPct)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun StatTile(@StringRes label: Int, value: Int, color: Color, modifier: Modifier = Modifier) {
-    Card(modifier = modifier, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = color)) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text(stringResource(label).uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value.toString(), style = MaterialTheme.typography.headlineMedium)
+private fun StatusLegendItem(color: Color, label: String, count: Int, pct: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(color))
+        Text("$label: $count ($pct%)", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun TopAuthorsLeaderboardCard(authors: Map<String, Int>) {
+    ChartCard(title = R.string.field_authors) {
+        val maxCount = authors.values.maxOrNull()?.coerceAtLeast(1) ?: 1
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Most Collected Authors", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            authors.entries.take(5).forEach { (author, count) ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(author, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("$count books", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(count / maxCount.toFloat())
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun LibraryValueCard(totalValue: Double) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.Outlined.Payments, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
-                Text(stringResource(R.string.stats_library_value), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+private fun FormatDistributionCard(formats: Map<String, Int>) {
+    ChartCard(title = R.string.format_label) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Bindings & Formats", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                formats.forEach { (code, count) ->
+                    val label = BookFormatCode.fromCode(code).labelRes
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ) {
+                        Text(
+                            text = "${stringResource(label)}: $count",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
             }
-            Text(totalValue.displayCost(), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+        }
+    }
+}
+
+@Composable
+private fun PublicationDecadesCard(decades: Map<String, Int>) {
+    val sorted = decades.entries.sortedBy { it.key }
+    val maxCount = sorted.maxOfOrNull { it.value }?.coerceAtLeast(1) ?: 1
+    ChartCard(title = R.string.field_published_year) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Publication Timeline", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier.fillMaxWidth().height(90.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                sorted.forEachIndexed { index, entry ->
+                    val barHeight = (64 * entry.value / maxCount).dp.coerceAtLeast(12.dp)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.Bottom,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(barHeight)
+                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                .background(chartColor(index)),
+                        )
+                        Text(entry.key, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
         }
     }
 }
@@ -1976,7 +2176,11 @@ private fun LanguageBarCard(languages: Map<String, Int>) {
         val total = languages.values.sum().coerceAtLeast(1)
         var animateIn by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) { animateIn = true }
-        val growth by animateFloatAsState(if (animateIn) 1f else 0f, animationSpec = tween(700), label = "languageBarGrowth")
+        val growth by animateFloatAsState(
+            if (animateIn) 1f else 0f,
+            animationSpec = spring(dampingRatio = 0.7f, stiffness = 300f),
+            label = "languageBarGrowth"
+        )
         Row(
             modifier = Modifier.fillMaxWidth().height(16.dp).clip(RoundedCornerShape(8.dp)),
             horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -2020,7 +2224,7 @@ private fun GenreBarsCard(genres: Map<String, Int>, modifier: Modifier = Modifie
                 val targetHeight = (96 * entry.value / maxValue).dp.coerceAtLeast(18.dp)
                 val animatedHeight by animateDpAsState(
                     if (animateIn) targetHeight else 0.dp,
-                    animationSpec = tween(600, delayMillis = index * 60),
+                    animationSpec = spring(dampingRatio = 0.72f, stiffness = 350f),
                     label = "genreBarHeight",
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Bottom) {
@@ -2044,7 +2248,11 @@ private fun ReadingRingCard(read: Int, goal: Int, modifier: Modifier = Modifier)
         val progress = (read / goal.toFloat()).coerceIn(0f, 1f)
         var animateIn by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) { animateIn = true }
-        val animatedProgress by animateFloatAsState(if (animateIn) progress else 0f, animationSpec = tween(800), label = "readingRingProgress")
+        val animatedProgress by animateFloatAsState(
+            if (animateIn) progress else 0f,
+            animationSpec = spring(dampingRatio = 0.75f, stiffness = 300f),
+            label = "readingRingProgress"
+        )
         val trackColor = MaterialTheme.colorScheme.surfaceVariant
         val progressColor = MaterialTheme.colorScheme.primary
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -2141,13 +2349,15 @@ private fun SettingsScreen(
     onPrimaryLanguageChange: (String) -> Unit,
     onAddMainGenre: (String) -> Unit,
     onRemoveMainGenre: (String) -> Unit,
-    onAddSubGenre: (String) -> Unit,
-    onRemoveSubGenre: (String) -> Unit,
+    onAddSubGenre: (String, String) -> Unit,
+    onRemoveSubGenre: (String, String) -> Unit,
     onLoanRemindersEnabledChange: (Boolean) -> Unit,
     onLoanReminderLeadDaysChange: (Int) -> Unit,
     onBackupReminderDaysChange: (Int) -> Unit,
     onExportJson: (Uri) -> Unit,
     onExportCsv: (Uri) -> Unit,
+    onExportHtmlCatalog: (Uri) -> Unit,
+    onExportPdfCatalog: (Uri) -> Unit,
     onExportCsvTemplate: (Uri) -> Unit,
     onImportJson: (Uri) -> Unit,
     onImportCsv: (Uri) -> Unit,
@@ -2201,6 +2411,8 @@ private fun SettingsScreen(
             onBackupReminderDaysChange = onBackupReminderDaysChange,
             onExportJson = onExportJson,
             onExportCsv = onExportCsv,
+            onExportHtmlCatalog = onExportHtmlCatalog,
+            onExportPdfCatalog = onExportPdfCatalog,
             onExportCsvTemplate = onExportCsvTemplate,
             onImportJson = onImportJson,
             onImportCsv = onImportCsv,
@@ -2239,13 +2451,15 @@ private fun SettingsRouteContent(
     onPrimaryLanguageChange: (String) -> Unit,
     onAddMainGenre: (String) -> Unit,
     onRemoveMainGenre: (String) -> Unit,
-    onAddSubGenre: (String) -> Unit,
-    onRemoveSubGenre: (String) -> Unit,
+    onAddSubGenre: (String, String) -> Unit,
+    onRemoveSubGenre: (String, String) -> Unit,
     onLoanRemindersEnabledChange: (Boolean) -> Unit,
     onLoanReminderLeadDaysChange: (Int) -> Unit,
     onBackupReminderDaysChange: (Int) -> Unit,
     onExportJson: (Uri) -> Unit,
     onExportCsv: (Uri) -> Unit,
+    onExportHtmlCatalog: (Uri) -> Unit,
+    onExportPdfCatalog: (Uri) -> Unit,
     onExportCsvTemplate: (Uri) -> Unit,
     onImportJson: (Uri) -> Unit,
     onImportCsv: (Uri) -> Unit,
@@ -2297,6 +2511,8 @@ private fun SettingsRouteContent(
                 onBack = onBack,
                 onExportJson = onExportJson,
                 onExportCsv = onExportCsv,
+                onExportHtmlCatalog = onExportHtmlCatalog,
+                onExportPdfCatalog = onExportPdfCatalog,
                 onExportCsvTemplate = onExportCsvTemplate,
                 onImportJson = onImportJson,
                 onImportCsv = onImportCsv,
@@ -2378,20 +2594,17 @@ private fun SettingsRouteContent(
 
 @Composable
 private fun AppearanceEntryCard(onOpenAppearance: () -> Unit) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressScale by rememberPressScale(interactionSource)
-    ElevatedCard(
-        onClick = onOpenAppearance,
-        interactionSource = interactionSource,
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
-        modifier = Modifier.scale(pressScale),
+    androidx.compose.material3.Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .expressiveClickable(onClick = onOpenAppearance),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp))
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -2406,7 +2619,7 @@ private fun AppearanceEntryCard(onOpenAppearance: () -> Unit) {
                 Icon(Icons.Outlined.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.settings_appearance), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+                Text(stringResource(R.string.settings_appearance), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(stringResource(R.string.settings_appearance_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 19.sp)
             }
             Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(270f))
@@ -2421,20 +2634,17 @@ private fun SettingsEntryCard(
     body: String,
     onClick: () -> Unit,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressScale by rememberPressScale(interactionSource)
-    ElevatedCard(
-        onClick = onClick,
-        interactionSource = interactionSource,
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
-        modifier = Modifier.scale(pressScale),
+    androidx.compose.material3.Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .expressiveClickable(onClick = onClick),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp))
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -2449,7 +2659,7 @@ private fun SettingsEntryCard(
                 Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 19.sp)
             }
             Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(270f))
@@ -2535,7 +2745,11 @@ private fun GranthapuraFabMenu(
     onScan: () -> Unit,
     onManual: () -> Unit,
 ) {
-    val rotation by animateFloatAsState(if (expanded) 45f else 0f, label = "fabRotation")
+    val rotation by animateFloatAsState(
+        if (expanded) 45f else 0f,
+        animationSpec = ExpressiveMotion.ExpressiveSpring,
+        label = "fabRotation"
+    )
     val alignment = if (placement == FabPlacement.LEFT) Alignment.Start else Alignment.End
     Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         AnimatedVisibility(
@@ -2578,7 +2792,11 @@ private fun LoansFabMenu(
     onAddPerson: () -> Unit,
     onAddLoan: () -> Unit,
 ) {
-    val rotation by animateFloatAsState(if (expanded) 45f else 0f, label = "loansFabRotation")
+    val rotation by animateFloatAsState(
+        if (expanded) 45f else 0f,
+        animationSpec = ExpressiveMotion.ExpressiveSpring,
+        label = "loansFabRotation"
+    )
     val alignment = if (placement == FabPlacement.LEFT) Alignment.Start else Alignment.End
     Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         AnimatedVisibility(
@@ -2645,8 +2863,8 @@ private fun StaggeredFabMenuItem(index: Int, expanded: Boolean, content: @Compos
     }
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = 0.7f),
-        exit = fadeOut(tween(90)),
+        enter = fadeIn(tween(180, easing = ExpressiveMotion.EmphasizedDecelerate)) + scaleIn(spring(dampingRatio = 0.65f, stiffness = 450f), initialScale = 0.7f),
+        exit = fadeOut(tween(100, easing = ExpressiveMotion.EmphasizedAccelerate)) + scaleOut(tween(100), targetScale = 0.8f),
     ) {
         content()
     }
@@ -2729,7 +2947,7 @@ private fun AddBookSheet(
     seriesSuggestions: List<String>,
     locations: List<LocationEntity>,
     mainGenreOptions: List<String>,
-    subGenreOptions: List<String>,
+    subGenresByMainGenre: Map<String, List<String>>,
     primaryLanguage: String,
     lookupInProgress: Boolean,
     savingInProgress: Boolean,
@@ -2757,6 +2975,11 @@ private fun AddBookSheet(
     var showCoverPicker by remember { mutableStateOf(false) }
     var autoLookupFailed by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    fun subGenreOptionsFor(mainGenre: String): List<String> =
+        subGenresByMainGenre.entries
+            .firstOrNull { it.key.equals(mainGenre, ignoreCase = true) }
+            ?.value
+            .orEmpty()
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
@@ -2789,16 +3012,9 @@ private fun AddBookSheet(
             }
         }
     }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) {
+    val editorContent: @Composable (Modifier) -> Unit = { containerModifier ->
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 760.dp)
+            modifier = containerModifier
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -2943,26 +3159,30 @@ private fun AddBookSheet(
             }
             RatingEditor(rating = draft.rating, onRatingChange = { draft = draft.copy(rating = it) })
             Text(stringResource(R.string.section_classification).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val availableSubGenres = subGenreOptionsFor(draft.mainGenre)
+            val selectedSubGenre = draft.subGenres.firstOrNull { selected ->
+                availableSubGenres.any { it.equals(selected, ignoreCase = true) }
+            }.orEmpty()
             DropdownSelectField(
                 value = draft.mainGenre,
-                onValueChange = { draft = draft.copy(mainGenre = it) },
+                onValueChange = { selectedMainGenre ->
+                    val nextSubGenres = subGenreOptionsFor(selectedMainGenre)
+                    draft = draft.copy(
+                        mainGenre = selectedMainGenre,
+                        subGenres = draft.subGenres.filter { current ->
+                            nextSubGenres.any { it.equals(current, ignoreCase = true) }
+                        }.take(1),
+                    )
+                },
                 options = mainGenreOptions,
                 label = R.string.field_main_genre,
             )
-            Text(stringResource(R.string.field_sub_genre), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                subGenreOptions.forEach { option ->
-                    MorphChip(
-                        selected = option in draft.subGenres,
-                        label = option,
-                        onClick = {
-                            draft = draft.copy(
-                                subGenres = if (option in draft.subGenres) draft.subGenres - option else draft.subGenres + option,
-                            )
-                        },
-                    )
-                }
-            }
+            DropdownSelectField(
+                value = selectedSubGenre,
+                onValueChange = { selected -> draft = draft.copy(subGenres = listOf(selected)) },
+                options = availableSubGenres,
+                label = R.string.field_sub_genre,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MorphChip(
                     selected = draft.bookType == "new",
@@ -3026,6 +3246,33 @@ private fun AddBookSheet(
                 }
             }
             Spacer(Modifier.height(20.dp))
+        }
+    }
+    if (editing) {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+                editorContent(
+                    Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.safeDrawing),
+                )
+            }
+        }
+    } else {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            editorContent(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 760.dp),
+            )
         }
     }
     if (showScanner) {
@@ -3594,15 +3841,65 @@ private fun DropdownSelectField(
             }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ScrollableDropdownMenuItems(
+                options = options,
+                onOptionSelected = { option ->
+                    onValueChange(option)
+                    expanded = false
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScrollableDropdownMenuItems(
+    options: List<String>,
+    onOptionSelected: (String) -> Unit,
+) {
+    val scrollState = rememberScrollState()
+    val showScrollbar = scrollState.maxValue > 0
+    val thumbColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    val trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+    Box {
+        Column(
+            modifier = Modifier
+                .heightIn(max = 320.dp)
+                .verticalScroll(scrollState),
+        ) {
             options.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(option) },
-                    onClick = {
-                        onValueChange(option)
-                        expanded = false
-                    },
+                    onClick = { onOptionSelected(option) },
                 )
             }
+        }
+        if (showScrollbar) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .width(6.dp)
+                    .padding(vertical = 8.dp, horizontal = 1.dp)
+                    .drawBehind {
+                        val scrollableDistance = scrollState.maxValue.toFloat().coerceAtLeast(1f)
+                        val thumbHeight = (size.height * size.height / (size.height + scrollableDistance)).coerceAtLeast(28.dp.toPx())
+                        val scrollFraction = (scrollState.value / scrollableDistance).coerceIn(0f, 1f)
+                        val thumbTop = (size.height - thumbHeight) * scrollFraction
+                        drawRoundRect(
+                            color = trackColor,
+                            topLeft = Offset(size.width * 0.25f, 0f),
+                            size = Size(size.width * 0.5f, size.height),
+                            cornerRadius = CornerRadius(size.width, size.width),
+                        )
+                        drawRoundRect(
+                            color = thumbColor,
+                            topLeft = Offset(0f, thumbTop),
+                            size = Size(size.width, thumbHeight),
+                            cornerRadius = CornerRadius(size.width, size.width),
+                        )
+                    },
+            )
         }
     }
 }
@@ -3729,6 +4026,7 @@ private fun BookDetailSheet(
     onLoan: () -> Unit,
     onReturn: (LoanEntity) -> Unit,
     onEdit: () -> Unit,
+    onClone: () -> Unit,
     onMove: () -> Unit,
     onDelete: () -> Unit,
     onRate: (Float) -> Unit,
@@ -3768,7 +4066,19 @@ private fun BookDetailSheet(
                     ) {
                         Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.content_description_close))
                     }
-                    Row {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        IconButton(
+                            onClick = {
+                                onDismiss()
+                                onClone()
+                            },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                                contentColor = MaterialTheme.colorScheme.onSurface,
+                            ),
+                        ) {
+                            Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.action_clone_book))
+                        }
                         IconButton(
                             onClick = onEdit,
                             colors = IconButtonDefaults.iconButtonColors(
@@ -3922,14 +4232,8 @@ private fun LoanDetailCard(item: BookListItem, loan: LoanEntity, onReturn: (Loan
 private fun RatingEditor(rating: Float, onRatingChange: (Float) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(stringResource(R.string.rating_label), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(
-            color = MaterialTheme.colorScheme.tertiaryContainer,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                RatingRow(rating = rating, onRatingChange = onRatingChange, starSize = 32.dp)
-            }
+        Box(modifier = Modifier.padding(vertical = 4.dp)) {
+            RatingRow(rating = rating, onRatingChange = onRatingChange, starSize = 32.dp)
         }
     }
 }
@@ -3940,7 +4244,11 @@ private fun RatingRow(rating: Float, onRatingChange: ((Float) -> Unit)? = null, 
         repeat(5) { index ->
             val value = (index + 1).toFloat()
             val filled = rating >= value
-            val starScale by animateFloatAsState(if (filled) 1.1f else 1f, animationSpec = ExpressiveSpring, label = "starScale")
+            val starScale by animateFloatAsState(
+                if (filled) 1.15f else 1f,
+                animationSpec = ExpressiveMotion.ExpressiveSpring,
+                label = "starScale"
+            )
             Icon(
                 Icons.Outlined.Star,
                 contentDescription = null,
@@ -4179,7 +4487,7 @@ private fun NewLoanFlowSheet(
                 LoanFlowStep.SelectBook -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { step = LoanFlowStep.SelectBorrower }) {
-                            Icon(Icons.Outlined.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.action_back))
                         }
                         Text(stringResource(R.string.new_loan_step_book_title), style = MaterialTheme.typography.headlineSmall)
                     }
@@ -4233,7 +4541,7 @@ private fun NewLoanFlowSheet(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (preselectedBook == null) {
                             IconButton(onClick = { step = LoanFlowStep.SelectBook }) {
-                                Icon(Icons.Outlined.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.action_back))
                             }
                         }
                         Text(stringResource(R.string.loan_this_book), style = MaterialTheme.typography.headlineSmall)

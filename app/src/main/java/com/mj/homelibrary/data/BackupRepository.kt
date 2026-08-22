@@ -86,6 +86,150 @@ class BackupRepository(
         writeCsv(uri, BookCsvCodec.template())
     }
 
+    suspend fun exportHtmlCatalog(uri: Uri, targetBookIds: Set<Long>? = null) = withContext(Dispatchers.IO) {
+        val allBooks = database.bookDao().getAll()
+        val books = if (targetBookIds != null) allBooks.filter { it.id in targetBookIds } else allBooks
+        val locationsById = database.locationDao().getAll().associateBy { it.id }
+
+        val htmlContent = buildString {
+            append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
+            append("<title>Home Library Catalog</title>")
+            append("<style>")
+            append("body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 24px; color: #1c1b1f; background: #fffbf2; }")
+            append("h1 { color: #6f4e27; margin-bottom: 4px; }")
+            append(".meta { color: #574539; font-size: 14px; margin-bottom: 24px; }")
+            append(".grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }")
+            append(".card { background: #fff8ea; border: 1px solid #e9ddc7; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }")
+            append(".title { font-weight: 600; font-size: 16px; color: #201a16; }")
+            append(".author { font-size: 13px; color: #574539; }")
+            append(".badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 500; background: #ffdbe2; color: #3b0906; }")
+            append(".badge.read { background: #e0f2fe; color: #0369a1; }")
+            append(".location { font-size: 12px; color: #7b6c5d; margin-top: auto; padding-top: 8px; border-top: 1px dashed #d5c3ae; }")
+            append("@media print { body { background: #fff; padding: 0; } .card { page-break-inside: avoid; } }")
+            append("</style></head><body>")
+            append("<h1>Home Library Catalog</h1>")
+            append("<div class='meta'>Exported on ").append(java.time.LocalDate.now()).append(" &bull; ").append(books.size).append(" Books</div>")
+            append("<div class='grid'>")
+            books.forEach { book ->
+                val loc = locationsById[book.locationId]
+                val locString = if (loc != null) {
+                    listOf(loc.room, loc.unit, loc.shelf).joinToString(" &rsaquo; ") { it.escapeHtml() }
+                } else {
+                    "Unassigned"
+                }
+                append("<div class='card'>")
+                append("<div class='title'>").append(book.title.escapeHtml()).append("</div>")
+                if (book.authors.isNotEmpty()) {
+                    append("<div class='author'>").append(book.authors.joinToString(", ").escapeHtml()).append("</div>")
+                }
+                append("<div><span class='badge ")
+                append(if (book.readStatusCode == ReadStatusCode.Finished.code) "read" else "")
+                append("'>")
+                append(book.readStatusCode.uppercase().escapeHtml()).append("</span></div>")
+                if (!book.isbn13.isNullOrBlank() || !book.isbn10.isNullOrBlank()) {
+                    append("<div style='font-size:11px;color:#7b6c5d;'>ISBN: ")
+                    append((book.isbn13 ?: book.isbn10).orEmpty().escapeHtml()).append("</div>")
+                }
+                append("<div class='location'>📍 ").append(locString).append("</div>")
+                append("</div>")
+            }
+            append("</div></body></html>")
+        }
+
+        context.contentResolver.openOutputStream(uri)?.use { stream ->
+            stream.writer(Charsets.UTF_8).use { it.write(htmlContent) }
+        }
+    }
+
+    suspend fun exportPdfCatalog(uri: Uri, targetBookIds: Set<Long>? = null) = withContext(Dispatchers.IO) {
+        val allBooks = database.bookDao().getAll()
+        val books = if (targetBookIds != null) allBooks.filter { it.id in targetBookIds } else allBooks
+        val locationsById = database.locationDao().getAll().associateBy { it.id }
+
+        val pdfDocument = android.graphics.pdf.PdfDocument()
+        val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        var page = pdfDocument.startPage(pageInfo)
+        var canvas = page.canvas
+        var pageNumber = 1
+
+        val paintTitle = android.graphics.Paint().apply {
+            color = android.graphics.Color.rgb(111, 78, 39)
+            textSize = 20f
+            isFakeBoldText = true
+        }
+        val paintHeader = android.graphics.Paint().apply {
+            color = android.graphics.Color.rgb(32, 26, 22)
+            textSize = 11f
+            isFakeBoldText = true
+        }
+        val paintText = android.graphics.Paint().apply {
+            color = android.graphics.Color.rgb(87, 69, 57)
+            textSize = 10f
+        }
+        val paintLine = android.graphics.Paint().apply {
+            color = android.graphics.Color.rgb(233, 221, 199)
+            strokeWidth = 1f
+        }
+
+        var y = 40f
+        canvas.drawText("Home Library Catalog", 36f, y, paintTitle)
+        y += 18f
+        canvas.drawText("Exported on ${java.time.LocalDate.now()} - Total ${books.size} Books", 36f, y, paintText)
+        y += 24f
+
+        fun drawColumnHeaders() {
+            canvas.drawText("Title", 36f, y, paintHeader)
+            canvas.drawText("Author", 220f, y, paintHeader)
+            canvas.drawText("Status", 390f, y, paintHeader)
+            canvas.drawText("Location", 460f, y, paintHeader)
+            y += 8f
+            canvas.drawLine(36f, y, 559f, y, paintLine)
+            y += 16f
+        }
+
+        try {
+            drawColumnHeaders()
+
+            books.forEach { book ->
+                if (y > 790f) {
+                    pdfDocument.finishPage(page)
+                    pageNumber++
+                    val newPageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, pageNumber).create()
+                    page = pdfDocument.startPage(newPageInfo)
+                    canvas = page.canvas
+                    y = 40f
+                    drawColumnHeaders()
+                }
+                val loc = locationsById[book.locationId]
+                val locStr = if (loc != null) "${loc.room}/${loc.unit}/${loc.shelf}" else "-"
+
+                val authors = book.authors.joinToString()
+                val titleTrimmed = if (book.title.length > 32) book.title.take(30) + "…" else book.title
+                val authorTrimmed = if (authors.length > 24) authors.take(22) + "…" else authors
+
+                canvas.drawText(titleTrimmed, 36f, y, paintHeader)
+                canvas.drawText(authorTrimmed, 220f, y, paintText)
+                canvas.drawText(book.readStatusCode.uppercase(), 390f, y, paintText)
+                canvas.drawText(locStr, 460f, y, paintText)
+                y += 18f
+            }
+
+            pdfDocument.finishPage(page)
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                pdfDocument.writeTo(stream)
+            }
+        } finally {
+            pdfDocument.close()
+        }
+    }
+
+    private fun String.escapeHtml(): String =
+        replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&#39;")
+
     suspend fun importJson(uri: Uri) = withContext(Dispatchers.IO) {
         val text = context.contentResolver.openInputStream(uri)?.use { stream ->
             stream.readUtf8TextLimited(MAX_IMPORT_TEXT_CHARS)

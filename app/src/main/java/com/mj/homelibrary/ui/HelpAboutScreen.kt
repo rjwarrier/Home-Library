@@ -3,6 +3,13 @@ package com.mj.homelibrary.ui
 import android.content.Intent
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.draw.rotate
+import com.mj.homelibrary.ui.theme.ExpressiveMotion
+import com.mj.homelibrary.ui.theme.expressiveClickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,7 +32,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.ExpandLess
@@ -224,7 +231,7 @@ private fun HelpHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBack) {
-            Icon(Icons.Outlined.ArrowBack, contentDescription = stringResource(R.string.action_back))
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.action_back))
         }
         Text(
             text = stringResource(titleRes),
@@ -302,14 +309,23 @@ private fun CollapsibleHelpCard(
     expanded: Boolean,
     onToggle: () -> Unit,
 ) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
+    val arrowRotation by animateFloatAsState(
+        if (expanded) 180f else 0f,
+        animationSpec = ExpressiveMotion.ExpressiveSpring,
+        label = "faqArrowRotation"
+    )
+    androidx.compose.material3.Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .expressiveClickable(onClick = onToggle),
     ) {
         Column(
-            modifier = Modifier.padding(18.dp).animateContentSize(),
+            modifier = Modifier
+                .padding(16.dp)
+                .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -326,9 +342,10 @@ private fun CollapsibleHelpCard(
                     modifier = Modifier.weight(1f).padding(start = 14.dp),
                 )
                 Icon(
-                    imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    imageVector = Icons.Outlined.ExpandMore,
                     contentDescription = stringResource(if (expanded) R.string.help_cd_collapse else R.string.help_cd_expand),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.rotate(arrowRotation),
                 )
             }
             Text(

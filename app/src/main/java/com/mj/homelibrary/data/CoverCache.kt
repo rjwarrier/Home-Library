@@ -9,12 +9,23 @@ import java.net.URL
 import java.security.MessageDigest
 
 class CoverCache(private val context: Context) {
+    private val memoryCache = BoundedLruCache<String, String>(MEMORY_CACHE_MAX_ENTRIES)
+
     suspend fun cache(url: String?): String? = withContext(Dispatchers.IO) {
         if (url.isNullOrBlank()) return@withContext null
+        memoryCache.get(url)?.let { cachedPath ->
+            if (File(cachedPath).exists()) return@withContext cachedPath
+            memoryCache.remove(url)
+        }
+
         runCatching {
             val directory = File(context.filesDir, COVER_DIRECTORY).also { it.mkdirs() }
             val file = File(directory, "${url.sha256()}.jpg")
-            if (file.exists() && file.length() > 0L) return@runCatching file.absolutePath
+            if (file.exists() && file.length() > 0L) {
+                val path = file.absolutePath
+                memoryCache.put(url, path)
+                return@runCatching path
+            }
             val connection = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = NETWORK_TIMEOUT_MS
                 readTimeout = NETWORK_TIMEOUT_MS
@@ -24,7 +35,9 @@ class CoverCache(private val context: Context) {
                 connection.inputStream.use { input ->
                     file.outputStream().use { output -> input.copyTo(output) }
                 }
-                file.absolutePath
+                val path = file.absolutePath
+                memoryCache.put(url, path)
+                path
             } finally {
                 connection.disconnect()
             }
@@ -39,5 +52,6 @@ class CoverCache(private val context: Context) {
     private companion object {
         const val COVER_DIRECTORY = "covers"
         const val NETWORK_TIMEOUT_MS = 12_000
+        const val MEMORY_CACHE_MAX_ENTRIES = 200
     }
 }

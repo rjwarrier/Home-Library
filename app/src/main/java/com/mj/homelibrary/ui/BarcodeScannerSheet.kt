@@ -17,6 +17,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import com.mj.homelibrary.ui.theme.ExpressiveMotion
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -275,7 +276,10 @@ private fun ScannerReticle(modifier: Modifier = Modifier) {
     val sweep by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(2100), repeatMode = RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(
+            animation = tween(2100, easing = ExpressiveMotion.Emphasized),
+            repeatMode = RepeatMode.Reverse
+        ),
         label = "scannerSweep",
     )
     Canvas(modifier = modifier) {

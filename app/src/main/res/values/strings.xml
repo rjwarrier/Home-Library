@@ -24,6 +24,7 @@
     <string name="action_loan_book">Loan book</string>
     <string name="action_move">Move</string>
     <string name="action_edit">Edit</string>
+    <string name="action_clone_book">Clone as new book</string>
     <string name="action_delete">Delete</string>
     <string name="action_select">Select</string>
     <string name="action_new_loan">New loan</string>

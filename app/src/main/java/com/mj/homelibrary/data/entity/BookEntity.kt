@@ -12,6 +12,9 @@ import androidx.room.PrimaryKey
         Index(value = ["isbn10"]),
         Index(value = ["isbn13"], unique = true),
         Index(value = ["locationId"]),
+        Index(value = ["readStatusCode"]),
+        Index(value = ["mainGenre"]),
+        Index(value = ["addedDateEpochMillis"]),
     ],
     foreignKeys = [
         ForeignKey(

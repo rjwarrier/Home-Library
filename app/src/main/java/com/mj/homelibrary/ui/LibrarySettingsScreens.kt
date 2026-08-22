@@ -4,7 +4,11 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.ui.draw.rotate
+import com.mj.homelibrary.ui.theme.ExpressiveMotion
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,19 +25,24 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Sort
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -155,6 +164,8 @@ fun DataRecoverySettingsScreen(
     onBack: () -> Unit,
     onExportJson: (Uri) -> Unit,
     onExportCsv: (Uri) -> Unit,
+    onExportHtmlCatalog: (Uri) -> Unit,
+    onExportPdfCatalog: (Uri) -> Unit,
     onExportCsvTemplate: (Uri) -> Unit,
     onImportJson: (Uri) -> Unit,
     onImportCsv: (Uri) -> Unit,
@@ -165,15 +176,24 @@ fun DataRecoverySettingsScreen(
     onBackupReminderDaysChange: (Int) -> Unit,
 ) {
     val context = LocalContext.current
-    val jsonFilename = stringResource(R.string.backup_json_filename)
-    val csvFilename = stringResource(R.string.backup_csv_filename)
-    val csvTemplateFilename = stringResource(R.string.csv_template_filename)
-    val completeBackupFilename = stringResource(R.string.backup_complete_filename)
+    val jsonFilename = remember { "home_library_backup_${System.currentTimeMillis()}.json" }
+    val csvFilename = remember { "home_library_books_${System.currentTimeMillis()}.csv" }
+    val htmlFilename = remember { "home_library_catalog_${System.currentTimeMillis()}.html" }
+    val pdfFilename = remember { "home_library_catalog_${System.currentTimeMillis()}.pdf" }
+    val csvTemplateFilename = "home_library_import_template.csv"
+    val completeBackupFilename = remember { "home_library_full_backup_${System.currentTimeMillis()}.zip" }
+
     val jsonExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) onExportJson(uri)
     }
     val csvExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) onExportCsv(uri)
+    }
+    val htmlExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/html")) { uri ->
+        if (uri != null) onExportHtmlCatalog(uri)
+    }
+    val pdfExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri != null) onExportPdfCatalog(uri)
     }
     val csvTemplateExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) onExportCsvTemplate(uri)
@@ -272,6 +292,21 @@ fun DataRecoverySettingsScreen(
                         Text(stringResource(R.string.action_import_csv))
                     }
                 }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(onClick = { htmlExporter.launch(htmlFilename) }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.Code, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(6.dp))
+                        Text("Export HTML")
+                    }
+                    OutlinedButton(onClick = { pdfExporter.launch(pdfFilename) }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(6.dp))
+                        Text("Export PDF")
+                    }
+                }
                 OutlinedButton(
                     onClick = { csvTemplateExporter.launch(csvTemplateFilename) },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -325,9 +360,13 @@ fun GenreManagementScreen(
     onBack: () -> Unit,
     onAddMainGenre: (String) -> Unit,
     onRemoveMainGenre: (String) -> Unit,
-    onAddSubGenre: (String) -> Unit,
-    onRemoveSubGenre: (String) -> Unit,
+    onAddSubGenre: (String, String) -> Unit,
+    onRemoveSubGenre: (String, String) -> Unit,
 ) {
+    var selectedMainGenre by remember(settings.mainGenres) { mutableStateOf(settings.mainGenres.firstOrNull().orEmpty()) }
+    val activeMainGenre = settings.mainGenres.firstOrNull { it.equals(selectedMainGenre, ignoreCase = true) }
+        ?: settings.mainGenres.firstOrNull()
+        ?: ""
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -347,10 +386,63 @@ fun GenreManagementScreen(
         }
         item {
             SettingsControlCard(icon = Icons.Outlined.Category, titleRes = R.string.field_sub_genre) {
-                GenreManagementSection(
-                    values = settings.subGenres,
-                    onAdd = onAddSubGenre,
-                    onRemove = onRemoveSubGenre,
+                GenreParentDropdown(
+                    selected = activeMainGenre,
+                    options = settings.mainGenres,
+                    onSelected = { selectedMainGenre = it },
+                )
+                if (activeMainGenre.isNotBlank()) {
+                    GenreManagementSection(
+                        values = settings.subGenresFor(activeMainGenre),
+                        onAdd = { onAddSubGenre(activeMainGenre, it) },
+                        onRemove = { onRemoveSubGenre(activeMainGenre, it) },
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.field_select_placeholder),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GenreParentDropdown(
+    selected: String,
+    options: List<String>,
+    onSelected: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val rotation by animateFloatAsState(
+        if (expanded) 180f else 0f,
+        animationSpec = ExpressiveMotion.ExpressiveSpring,
+        label = "dropdownArrowRotation"
+    )
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            enabled = options.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Text(
+                text = selected.ifBlank { stringResource(R.string.field_select_placeholder) },
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Start,
+            )
+            Icon(Icons.Outlined.ExpandMore, contentDescription = null, modifier = Modifier.rotate(rotation))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = {
+                        onSelected(option)
+                        expanded = false
+                    },
                 )
             }
         }
@@ -424,15 +516,16 @@ private fun SettingsSubscreenHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = dimensionResource(R.dimen.space_lg)),
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBack) {
-            Icon(Icons.Outlined.ArrowBack, contentDescription = stringResource(R.string.action_back))
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.action_back))
         }
         Text(
             text = stringResource(titleRes),
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary,
             textAlign = TextAlign.Center,
             modifier = Modifier.weight(1f),
@@ -447,26 +540,35 @@ private fun SettingsControlCard(
     @StringRes titleRes: Int,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    ElevatedCard(
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
+    androidx.compose.material3.Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp))
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.Top,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SurfaceIcon(icon = icon)
-            Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(titleRes), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Box(modifier = Modifier.padding(top = 10.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
-                }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                SurfaceIcon(icon = icon)
+                Text(
+                    text = stringResource(titleRes),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                content = content,
+            )
         }
     }
 }

@@ -2,6 +2,7 @@ package com.mj.homelibrary.ui
 
 import android.app.Application
 import android.net.Uri
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
@@ -250,13 +251,93 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         librarySettingsRepository.setPrimaryLanguage(languageCode)
     }
 
+    fun toggleSelectionMode(enabled: Boolean = !transient.value.selectionMode) {
+        transient.update {
+            it.copy(
+                selectionMode = enabled,
+                selectedBookIds = if (enabled) it.selectedBookIds else emptySet()
+            )
+        }
+    }
+
+    fun toggleSelectBook(bookId: Long) {
+        transient.update { state ->
+            val updated = if (bookId in state.selectedBookIds) {
+                state.selectedBookIds - bookId
+            } else {
+                state.selectedBookIds + bookId
+            }
+            state.copy(
+                selectionMode = updated.isNotEmpty(),
+                selectedBookIds = updated
+            )
+        }
+    }
+
+    fun selectAllVisible(bookIds: List<Long>) {
+        transient.update {
+            it.copy(
+                selectionMode = true,
+                selectedBookIds = bookIds.toSet()
+            )
+        }
+    }
+
+    fun clearSelection() {
+        transient.update {
+            it.copy(
+                selectionMode = false,
+                selectedBookIds = emptySet()
+            )
+        }
+    }
+
+    fun bulkDeleteSelected() {
+        val targetIds = transient.value.selectedBookIds
+        if (targetIds.isEmpty()) return
+        viewModelScope.launch {
+            repository.deleteBooks(targetIds)
+            clearSelection()
+        }
+    }
+
+    fun bulkSetReadStatus(statusCode: String) {
+        val targetIds = transient.value.selectedBookIds
+        if (targetIds.isEmpty()) return
+        viewModelScope.launch {
+            repository.updateReadStatus(targetIds, statusCode)
+            clearSelection()
+        }
+    }
+
+    fun bulkSetLocation(locationId: Long?) {
+        val targetIds = transient.value.selectedBookIds
+        if (targetIds.isEmpty()) return
+        viewModelScope.launch {
+            repository.updateLocationForBooks(targetIds, locationId)
+            clearSelection()
+        }
+    }
+
+    fun exportHtmlCatalog(uri: Uri, targetBookIds: Set<Long>? = null) {
+        viewModelScope.launch {
+            repository.exportHtmlCatalog(uri, targetBookIds)
+        }
+    }
+
+    fun exportPdfCatalog(uri: Uri, targetBookIds: Set<Long>? = null) {
+        viewModelScope.launch {
+            repository.exportPdfCatalog(uri, targetBookIds)
+        }
+    }
+
     fun addMainGenre(name: String) = librarySettingsRepository.addMainGenre(name)
 
     fun removeMainGenre(name: String) = librarySettingsRepository.removeMainGenre(name)
 
-    fun addSubGenre(name: String) = librarySettingsRepository.addSubGenre(name)
+    fun addSubGenre(mainGenre: String, name: String) = librarySettingsRepository.addSubGenre(mainGenre, name)
 
-    fun removeSubGenre(name: String) = librarySettingsRepository.removeSubGenre(name)
+    fun removeSubGenre(mainGenre: String, name: String) = librarySettingsRepository.removeSubGenre(mainGenre, name)
 
     fun addBook(draft: BookDraft, onSaved: () -> Unit) {
         if (draft.title.isBlank()) {
@@ -451,6 +532,7 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         }
 }
 
+@Immutable
 data class HomeLibraryUiState(
     val allBooks: List<BookEntity> = emptyList(),
     val allItems: List<BookListItem> = emptyList(),
@@ -483,6 +565,7 @@ private data class CatalogData(
     val stats: LibraryStats,
 )
 
+@Immutable
 data class BookListItem(
     val book: BookEntity,
     val location: LocationEntity?,
@@ -492,6 +575,7 @@ data class BookListItem(
     val isOverdue: Boolean = activeLoan?.expectedReturnDateEpochMillis?.let { it < System.currentTimeMillis() } == true
 }
 
+@Immutable
 data class LibraryFilters(
     val query: String = "",
     val sort: BookSortCode = BookSortCode.Recent,
@@ -516,12 +600,20 @@ data class LibraryFilters(
     }
 }
 
+@Immutable
 data class TransientState(
     val lookupInProgress: Boolean = false,
     val savingBookInProgress: Boolean = false,
     val errorRes: Int? = null,
     val statusRes: Int? = null,
     val failedLookupIsbn: String? = null,
+    val selectionMode: Boolean = false,
+    val selectedBookIds: Set<Long> = emptySet(),
+    val lastUsedLocationId: Long? = null,
+    val lastUsedRoom: String = "",
+    val lastUsedUnit: String = "",
+    val lastUsedShelf: String = "",
+    val lastUsedReadStatus: String = ReadStatusCode.Unread.code,
 )
 
 data class BookDraft(
@@ -628,13 +720,25 @@ data class LoanDraft(
     val notes: String = "",
 )
 
+@Immutable
 data class LibraryStats(
     val totalBooks: Int = 0,
     val activeLoans: Int = 0,
     val finishedBooks: Int = 0,
+    val readingBooks: Int = 0,
+    val unreadBooks: Int = 0,
+    val abandonedBooks: Int = 0,
     val readThisYear: Int = 0,
+    val totalPages: Int = 0,
+    val averageRating: Float = 0f,
+    val signedCount: Int = 0,
     val languages: Map<String, Int> = emptyMap(),
     val genres: Map<String, Int> = emptyMap(),
+    val topAuthors: Map<String, Int> = emptyMap(),
+    val topPublishers: Map<String, Int> = emptyMap(),
+    val formatsBreakdown: Map<String, Int> = emptyMap(),
+    val decadesBreakdown: Map<String, Int> = emptyMap(),
+    val ratingCounts: Map<Int, Int> = emptyMap(),
     val mostBorrowed: List<BookBorrowStat> = emptyList(),
     val totalLibraryValue: Double = 0.0,
 ) {
@@ -642,16 +746,67 @@ data class LibraryStats(
         fun from(books: List<BookEntity>, loans: List<LoanEntity>, activeLoans: List<LoanEntity>): LibraryStats {
             val currentYear = LocalDate.now().year
             val bookById = books.associateBy { it.id }
+
+            val ratedBooks = books.filter { (it.rating ?: 0f) > 0f }
+            val avgRating = if (ratedBooks.isNotEmpty()) ratedBooks.map { it.rating ?: 0f }.average().toFloat() else 0f
+
+            val authorsMap = books.flatMap { it.authors }
+                .filter { it.isNotBlank() }
+                .groupingBy { it }
+                .eachCount()
+                .entries
+                .sortedByDescending { it.value }
+                .take(5)
+                .associate { it.key to it.value }
+
+            val publishersMap = books.mapNotNull { it.publisher?.trim()?.takeIf(String::isNotEmpty) }
+                .groupingBy { it }
+                .eachCount()
+                .entries
+                .sortedByDescending { it.value }
+                .take(5)
+                .associate { it.key to it.value }
+
+            val formatsMap = books.groupingBy { it.formatCode.ifBlank { "paperback" } }.eachCount()
+
+            val decadesMap = books.mapNotNull { it.publishedYear }
+                .map { year ->
+                    when {
+                        year < 1980 -> "Pre-1980"
+                        year in 1980..1989 -> "1980s"
+                        year in 1990..1999 -> "1990s"
+                        year in 2000..2009 -> "2000s"
+                        year in 2010..2019 -> "2010s"
+                        else -> "2020s"
+                    }
+                }
+                .groupingBy { it }
+                .eachCount()
+
+            val ratingsMap = (1..5).associateWith { star ->
+                books.count { (it.rating ?: 0f).toInt() == star }
+            }
+
             return LibraryStats(
                 totalBooks = books.size,
                 activeLoans = activeLoans.size,
                 finishedBooks = books.count { it.readStatusCode == ReadStatusCode.Finished.code },
+                readingBooks = books.count { it.readStatusCode == ReadStatusCode.Reading.code },
+                unreadBooks = books.count { it.readStatusCode == ReadStatusCode.Unread.code },
                 readThisYear = books.count {
                     it.readStatusCode == ReadStatusCode.Finished.code &&
                         it.addedDateEpochMillis.toLocalYear() == currentYear
                 },
+                totalPages = books.sumOf { it.pageCount ?: 0 },
+                averageRating = avgRating,
+                signedCount = books.count { it.signedCopy },
                 languages = books.groupingBy { it.languageCode }.eachCount(),
                 genres = books.flatMap { it.subGenres }.groupingBy { it }.eachCount(),
+                topAuthors = authorsMap,
+                topPublishers = publishersMap,
+                formatsBreakdown = formatsMap,
+                decadesBreakdown = decadesMap,
+                ratingCounts = ratingsMap,
                 mostBorrowed = loans.groupingBy { it.bookId }
                     .eachCount()
                     .entries
@@ -666,6 +821,7 @@ data class LibraryStats(
     }
 }
 
+@Immutable
 data class BookBorrowStat(
     val title: String,
     val borrowCount: Int,

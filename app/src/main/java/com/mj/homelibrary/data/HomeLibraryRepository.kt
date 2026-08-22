@@ -99,6 +99,22 @@ class HomeLibraryRepository(
         bookDao.delete(book)
     }
 
+    suspend fun deleteBooks(bookIds: Set<Long>) {
+        if (bookIds.isNotEmpty()) bookDao.deleteBooks(bookIds)
+    }
+
+    suspend fun updateReadStatus(bookIds: Set<Long>, statusCode: String) {
+        if (bookIds.isNotEmpty()) bookDao.updateReadStatus(bookIds, statusCode)
+    }
+
+    suspend fun updateLocationForBooks(bookIds: Set<Long>, locationId: Long?) {
+        if (bookIds.isNotEmpty()) bookDao.updateLocationForBooks(bookIds, locationId)
+    }
+
+    suspend fun exportHtmlCatalog(uri: Uri, targetBookIds: Set<Long>? = null) = backupRepository.exportHtmlCatalog(uri, targetBookIds)
+
+    suspend fun exportPdfCatalog(uri: Uri, targetBookIds: Set<Long>? = null) = backupRepository.exportPdfCatalog(uri, targetBookIds)
+
     suspend fun loanBook(
         bookId: Long,
         borrowerId: Long?,

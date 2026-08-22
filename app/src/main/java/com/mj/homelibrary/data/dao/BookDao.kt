@@ -44,6 +44,15 @@ interface BookDao {
     @Delete
     suspend fun delete(book: BookEntity)
 
+    @Query("DELETE FROM books WHERE id IN (:bookIds)")
+    suspend fun deleteBooks(bookIds: Set<Long>)
+
+    @Query("UPDATE books SET readStatusCode = :statusCode WHERE id IN (:bookIds)")
+    suspend fun updateReadStatus(bookIds: Set<Long>, statusCode: String)
+
+    @Query("UPDATE books SET locationId = :locationId WHERE id IN (:bookIds)")
+    suspend fun updateLocationForBooks(bookIds: Set<Long>, locationId: Long?)
+
     @Query("DELETE FROM books")
     suspend fun clear()
 }
