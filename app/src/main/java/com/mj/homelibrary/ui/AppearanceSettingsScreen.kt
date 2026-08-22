@@ -55,6 +55,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -258,8 +260,31 @@ private fun ThemeModeCard(
         ThemePreference.DARK -> Icons.Outlined.DarkMode
         ThemePreference.AMOLED -> Icons.Outlined.Palette
     }
-    val cardColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
-    val contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val targetCardColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+    val targetContentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val targetIconBg = if (selected) MaterialTheme.colorScheme.inverseSurface else MaterialTheme.colorScheme.surface
+    val targetIconTint = if (selected) MaterialTheme.colorScheme.inverseOnSurface else MaterialTheme.colorScheme.onSurfaceVariant
+
+    val cardColor by androidx.compose.animation.animateColorAsState(
+        targetValue = targetCardColor,
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
+        label = "themeCardColor"
+    )
+    val contentColor by androidx.compose.animation.animateColorAsState(
+        targetValue = targetContentColor,
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
+        label = "themeContentColor"
+    )
+    val iconBg by androidx.compose.animation.animateColorAsState(
+        targetValue = targetIconBg,
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
+        label = "themeIconBg"
+    )
+    val iconTint by androidx.compose.animation.animateColorAsState(
+        targetValue = targetIconTint,
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
+        label = "themeIconTint"
+    )
 
     ElevatedCard(
         modifier = modifier
@@ -275,13 +300,13 @@ private fun ThemeModeCard(
                     .size(44.dp)
                     .align(Alignment.TopCenter)
                     .clip(CircleShape)
-                    .background(if (selected) MaterialTheme.colorScheme.inverseSurface else MaterialTheme.colorScheme.surface),
+                    .background(iconBg),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = if (selected) Icons.Outlined.Check else icon,
                     contentDescription = null,
-                    tint = if (selected) MaterialTheme.colorScheme.inverseOnSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = iconTint,
                 )
             }
             Text(
@@ -392,8 +417,19 @@ private fun FontFamilyCard(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val cardColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
-    val contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val targetCardColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+    val targetContentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+
+    val cardColor by androidx.compose.animation.animateColorAsState(
+        targetValue = targetCardColor,
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
+        label = "fontCardColor"
+    )
+    val contentColor by androidx.compose.animation.animateColorAsState(
+        targetValue = targetContentColor,
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
+        label = "fontContentColor"
+    )
 
     Column(
         modifier = modifier.expressiveClickable(onClick = onClick),

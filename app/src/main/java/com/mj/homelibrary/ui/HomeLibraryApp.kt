@@ -1818,6 +1818,7 @@ private fun ShelvesScreen(
                             itemsByLocationId = state.visibleItemsByLocationId,
                             onBookClick = onBookClick,
                             onAudit = onAudit,
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
@@ -1833,8 +1834,12 @@ private fun RoomSection(
     itemsByLocationId: Map<Long, List<BookListItem>>,
     onBookClick: (BookListItem) -> Unit,
     onAudit: (LocationEntity) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_sm))) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_sm)),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Outlined.Weekend, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(19.dp))
             Text(room, fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
@@ -1982,7 +1987,7 @@ private fun LoansScreen(
                 contentPadding = PaddingValues(bottom = dimensionResource(R.dimen.space_xl)),
             ) {
                 if (overdueCount > 0) {
-                    item { OverdueBanner() }
+                    item(key = "overdue_banner") { OverdueBanner(modifier = Modifier.animateItem()) }
                 }
                 borrowers.forEach { (borrower, loans) ->
                     item(key = borrower) {
@@ -1993,6 +1998,7 @@ private fun LoansScreen(
                             itemByBookId = itemByBookId,
                             onReturn = onReturn,
                             onBookClick = onBookClick,
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
@@ -2002,9 +2008,9 @@ private fun LoansScreen(
 }
 
 @Composable
-private fun OverdueBanner() {
+private fun OverdueBanner(modifier: Modifier = Modifier) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)))
             .background(MaterialTheme.colorScheme.errorContainer)
@@ -2032,10 +2038,14 @@ private fun BorrowerCard(
     itemByBookId: Map<Long, BookListItem>,
     onReturn: (LoanEntity) -> Unit,
     onBookClick: (BookListItem) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val borrowerContact = loans.firstNotNullOfOrNull { it.borrowerContact?.takeIf(String::isNotBlank) }
-    ElevatedCard(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent))) {
+    ElevatedCard(
+        modifier = modifier,
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
+    ) {
         Column(
             modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(dimensionResource(R.dimen.corner_prominent))),
         ) {
@@ -2606,11 +2616,19 @@ private fun SettingsScreen(
         targetState = route,
         transitionSpec = {
             if (targetState != SettingsRoute.Main) {
-                (slideInHorizontally(tween(260)) { it / 3 } + fadeIn()) togetherWith
-                    (slideOutHorizontally(tween(260)) { -it / 3 } + fadeOut())
+                (slideInHorizontally(tween(ExpressiveMotion.DurationMedium, easing = ExpressiveMotion.EmphasizedDecelerate)) { it / 3 } +
+                    fadeIn(tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate)) +
+                    scaleIn(tween(ExpressiveMotion.DurationMedium, easing = ExpressiveMotion.EmphasizedDecelerate), initialScale = 0.95f)) togetherWith
+                    (slideOutHorizontally(tween(ExpressiveMotion.DurationMedium, easing = ExpressiveMotion.EmphasizedAccelerate)) { -it / 3 } +
+                        fadeOut(tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedAccelerate)) +
+                        scaleOut(tween(ExpressiveMotion.DurationMedium, easing = ExpressiveMotion.EmphasizedAccelerate), targetScale = 0.95f))
             } else {
-                (slideInHorizontally(tween(260)) { -it / 3 } + fadeIn()) togetherWith
-                    (slideOutHorizontally(tween(260)) { it / 3 } + fadeOut())
+                (slideInHorizontally(tween(ExpressiveMotion.DurationMedium, easing = ExpressiveMotion.EmphasizedDecelerate)) { -it / 3 } +
+                    fadeIn(tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate)) +
+                    scaleIn(tween(ExpressiveMotion.DurationMedium, easing = ExpressiveMotion.EmphasizedDecelerate), initialScale = 0.95f)) togetherWith
+                    (slideOutHorizontally(tween(ExpressiveMotion.DurationMedium, easing = ExpressiveMotion.EmphasizedAccelerate)) { it / 3 } +
+                        fadeOut(tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedAccelerate)) +
+                        scaleOut(tween(ExpressiveMotion.DurationMedium, easing = ExpressiveMotion.EmphasizedAccelerate), targetScale = 0.95f))
             }
         },
         label = "settingsRoute",
@@ -4497,14 +4515,25 @@ private fun RatingRow(rating: Float, onRatingChange: ((Float) -> Unit)? = null, 
                 animationSpec = ExpressiveMotion.ExpressiveSpring,
                 label = "starScale"
             )
+            val starTint by androidx.compose.animation.animateColorAsState(
+                targetValue = if (filled) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant,
+                animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
+                label = "starTint"
+            )
             Icon(
                 Icons.Outlined.Star,
                 contentDescription = null,
-                tint = if (filled) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant,
+                tint = starTint,
                 modifier = Modifier
                     .size(starSize)
                     .scale(starScale)
-                    .then(if (onRatingChange != null) Modifier.clickable { onRatingChange(value) } else Modifier),
+                    .then(
+                        if (onRatingChange != null) {
+                            Modifier.expressiveClickable(pressedScale = 0.88f) { onRatingChange(value) }
+                        } else {
+                            Modifier
+                        }
+                    ),
             )
         }
         Text(stringResource(R.string.rating_value, rating), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

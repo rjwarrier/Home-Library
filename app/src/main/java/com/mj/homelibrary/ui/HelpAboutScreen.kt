@@ -157,6 +157,7 @@ fun HelpAboutScreen(onBack: () -> Unit) {
             ) { _, section ->
                 val sectionId = section.titleRes
                 CollapsibleHelpCard(
+                    modifier = Modifier.animateItem(),
                     section = section,
                     expanded = expandedSection == sectionId,
                     onToggle = {
@@ -308,6 +309,7 @@ private fun CollapsibleHelpCard(
     section: HomeLibraryHelpSection,
     expanded: Boolean,
     onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val arrowRotation by animateFloatAsState(
         if (expanded) 180f else 0f,
@@ -318,7 +320,7 @@ private fun CollapsibleHelpCard(
         shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .expressiveClickable(onClick = onToggle),
     ) {

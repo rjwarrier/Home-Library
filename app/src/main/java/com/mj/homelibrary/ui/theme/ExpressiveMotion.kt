@@ -10,12 +10,16 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -38,7 +42,9 @@ object ExpressiveMotion {
     val Emphasized: Easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)
     val EmphasizedDecelerate: Easing = CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f)
     val EmphasizedAccelerate: Easing = CubicBezierEasing(0.4f, 0.0f, 1.0f, 1.0f)
+    val Standard: Easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)
     val StandardDecelerate: Easing = CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f)
+    val StandardAccelerate: Easing = CubicBezierEasing(0.3f, 0.0f, 1.0f, 1.0f)
 
     // --- Spring Specifications ---
     val ExpressiveSpring: AnimationSpec<Float> = spring(
@@ -56,6 +62,11 @@ object ExpressiveMotion {
         stiffness = Spring.StiffnessLow
     )
 
+    val FastSpring: AnimationSpec<Float> = spring(
+        dampingRatio = 0.75f,
+        stiffness = 800f
+    )
+
     val MorphDpSpring: AnimationSpec<Dp> = spring(
         dampingRatio = 0.7f,
         stiffness = 400f
@@ -65,6 +76,7 @@ object ExpressiveMotion {
     const val DurationShort = 200
     const val DurationMedium = 350
     const val DurationLong = 500
+    const val DurationExtraLong = 700
 }
 
 /**
@@ -145,7 +157,26 @@ fun m3TabTransition(isForward: Boolean): ContentTransform {
 }
 
 /**
- * Creates a standard M3 dialog / sheet enter transition with scale and fade.
+ * Creates M3 Fade Through transition for neutral content switches.
+ */
+fun m3FadeThroughTransition(): ContentTransform {
+    val enter = fadeIn(
+        animationSpec = tween(ExpressiveMotion.DurationMedium, delayMillis = 50, easing = ExpressiveMotion.EmphasizedDecelerate)
+    ) + scaleIn(
+        animationSpec = tween(ExpressiveMotion.DurationMedium, delayMillis = 50, easing = ExpressiveMotion.EmphasizedDecelerate),
+        initialScale = 0.94f
+    )
+    val exit = fadeOut(
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedAccelerate)
+    ) + scaleOut(
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedAccelerate),
+        targetScale = 0.96f
+    )
+    return enter togetherWith exit
+}
+
+/**
+ * Creates a standard M3 dialog enter transition with scale and fade.
  */
 fun m3DialogEnterTransition(): EnterTransition {
     return scaleIn(
@@ -157,7 +188,7 @@ fun m3DialogEnterTransition(): EnterTransition {
 }
 
 /**
- * Creates a standard M3 dialog / sheet exit transition with scale and fade.
+ * Creates a standard M3 dialog exit transition with scale and fade.
  */
 fun m3DialogExitTransition(): ExitTransition {
     return scaleOut(
@@ -165,5 +196,51 @@ fun m3DialogExitTransition(): ExitTransition {
         targetScale = 0.92f
     ) + fadeOut(
         animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.Emphasized)
+    )
+}
+
+/**
+ * Creates M3 bottom sheet / banner vertical slide and fade enter transition.
+ */
+fun m3SheetEnterTransition(): EnterTransition {
+    return slideInVertically(
+        animationSpec = tween(ExpressiveMotion.DurationMedium, easing = ExpressiveMotion.EmphasizedDecelerate),
+        initialOffsetY = { it / 3 }
+    ) + fadeIn(
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate)
+    )
+}
+
+/**
+ * Creates M3 bottom sheet / banner vertical slide and fade exit transition.
+ */
+fun m3SheetExitTransition(): ExitTransition {
+    return slideOutVertically(
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedAccelerate),
+        targetOffsetY = { it / 3 }
+    ) + fadeOut(
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedAccelerate)
+    )
+}
+
+/**
+ * Creates M3 vertical expand transition.
+ */
+fun m3ExpandTransition(): EnterTransition {
+    return expandVertically(
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+    ) + fadeIn(
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate)
+    )
+}
+
+/**
+ * Creates M3 vertical shrink transition.
+ */
+fun m3ShrinkTransition(): ExitTransition {
+    return shrinkVertically(
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+    ) + fadeOut(
+        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedAccelerate)
     )
 }
