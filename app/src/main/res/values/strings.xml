@@ -348,6 +348,12 @@
     <string name="bulk_scan_count">%1$d queued</string>
     <string name="review_books">Review %1$d books</string>
     <string name="stats_total_books_eyebrow">TOTAL BOOKS</string>
+    <string name="stats_hero_subtitle_genres">%1$d books across %2$d genres</string>
+    <string name="stats_hero_subtitle_authors">%1$d books by %2$d authors</string>
+    <string name="stats_hero_subtitle_single">%1$d books in collection</string>
+    <string name="stats_hero_reading_pulse">Reading Pulse</string>
+    <string name="stats_signed_editions">%1$d signed</string>
+    <string name="stats_active_loans_badge">%1$d on loan</string>
     <string name="stats_read_this_year">Read in %1$d</string>
     <string name="stats_goal_count">of %1$d</string>
     <string name="stats_legend_item">%1$s · %2$d</string>

@@ -937,7 +937,7 @@ private fun BulkSelectionHeader(
             Text(
                 text = stringResource(R.string.bulk_selected_count, selectedCount),
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
@@ -1699,8 +1699,8 @@ private fun BookCover(
                     Text(
                         text = book.title,
                         color = palette.fg,
-                        fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
                         fontSize = titleSize.sp,
                         lineHeight = (titleSize * 1.2f).sp,
                         maxLines = 3,
@@ -1710,6 +1710,7 @@ private fun BookCover(
                         text = book.authors.firstOrNull().orEmpty().uppercase(),
                         color = palette.fg.copy(alpha = 0.64f),
                         fontSize = max(8, titleSize - 7).sp,
+                        fontWeight = FontWeight.Medium,
                         letterSpacing = 1.2.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1740,7 +1741,7 @@ private fun LoanBadge(item: BookListItem, modifier: Modifier = Modifier) {
             modifier = Modifier.size(13.dp),
             tint = fg,
         )
-        Text(text = stringResource(label), color = fg, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+        Text(text = stringResource(label), color = fg, fontSize = 10.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -1769,7 +1770,7 @@ private fun StatusPill(item: BookListItem) {
             .padding(horizontal = 9.dp, vertical = 5.dp),
         color = fg,
         fontSize = 10.sp,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.Bold,
         maxLines = 1,
     )
 }
@@ -1844,7 +1845,7 @@ private fun RoomSection(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Outlined.Weekend, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(19.dp))
-            Text(room, fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+            Text(room, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, fontSize = 20.sp)
             CountChip(stringResource(R.string.book_count, locations.sumOf { itemsByLocationId[it.id].orEmpty().size }))
         }
         locations.groupBy { it.unit }.forEach { (unit, unitLocations) ->
@@ -2228,16 +2229,37 @@ private fun AnalyticsOverviewGrid(stats: LibraryStats) {
         label = "totalPagesCount"
     )
 
+    val total = stats.totalBooks.coerceAtLeast(1)
+    val finishedPct = (stats.finishedBooks * 100) / total
+    val readingPct = (stats.readingBooks * 100) / total
+    val unreadPct = (stats.unreadBooks * 100) / total
+
+    val subtitle = when {
+        stats.genres.isNotEmpty() -> stringResource(R.string.stats_hero_subtitle_genres, stats.totalBooks, stats.genres.size)
+        stats.topAuthors.isNotEmpty() -> stringResource(R.string.stats_hero_subtitle_authors, stats.totalBooks, stats.topAuthors.size)
+        else -> stringResource(R.string.stats_hero_subtitle_single, stats.totalBooks)
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Hero Card
+        // Informative Collection Pulse Hero Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.primaryContainer,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
         ) {
-            Box(modifier = Modifier.fillMaxWidth().padding(22.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                // Header row: Eyebrow + dynamic status badges
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2259,41 +2281,166 @@ private fun AnalyticsOverviewGrid(stats: LibraryStats) {
                         Text(
                             text = stringResource(R.string.stats_total_books_eyebrow),
                             style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
                             letterSpacing = 1.1.sp,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
                         )
                     }
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = animatedTotal.toString(),
-                        style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                    Text(
-                        text = stringResource(R.string.book_count, stats.totalBooks),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-                    )
-                }
-                if (stats.activeLoans > 0) {
-                    Surface(
-                        modifier = Modifier.align(Alignment.TopEnd),
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+
+                    // Dynamic status badges (active loans / signed copies)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        if (stats.activeLoans > 0) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiary))
+                                    Text(
+                                        text = stringResource(R.string.stats_active_loans_badge, stats.activeLoans),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        }
+                        if (stats.signedCount > 0) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Draw,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(12.dp),
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.stats_signed_editions, stats.signedCount),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Main body: Split Primary Metric + Informative Reading Snapshot Panel
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    // Left Column: Big bold figure & dynamic context
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = animatedTotal.toString(),
+                            style = MaterialTheme.typography.displayMedium,
+                            fontWeight = FontWeight.Black,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.80f),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+
+                    // Right Column: Reading Pulse Snapshot Panel
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                        modifier = Modifier.weight(1.15f),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiary))
-                            Text(
-                                text = "${stats.activeLoans} ${stringResource(R.string.stats_on_loan)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.stats_hero_reading_pulse),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = "$finishedPct% read",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+
+                            // Inline Micro Segmented Bar
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                horizontalArrangement = Arrangement.spacedBy(1.5.dp),
+                            ) {
+                                if (stats.finishedBooks > 0) {
+                                    Box(modifier = Modifier.weight(stats.finishedBooks / total.toFloat()).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
+                                }
+                                if (stats.readingBooks > 0) {
+                                    Box(modifier = Modifier.weight(stats.readingBooks / total.toFloat()).fillMaxHeight().background(MaterialTheme.colorScheme.tertiary))
+                                }
+                                if (stats.unreadBooks > 0) {
+                                    Box(modifier = Modifier.weight(stats.unreadBooks / total.toFloat()).fillMaxHeight().background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f)))
+                                }
+                                if (stats.abandonedBooks > 0) {
+                                    Box(modifier = Modifier.weight(stats.abandonedBooks / total.toFloat()).fillMaxHeight().background(MaterialTheme.colorScheme.error))
+                                }
+                            }
+
+                            // 3 Compact status indicators
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                MiniPulseMetric(
+                                    label = stringResource(ReadStatusCode.Finished.labelRes),
+                                    count = stats.finishedBooks,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                MiniPulseMetric(
+                                    label = stringResource(ReadStatusCode.Reading.labelRes),
+                                    count = stats.readingBooks,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                )
+                                MiniPulseMetric(
+                                    label = stringResource(ReadStatusCode.Unread.labelRes),
+                                    count = stats.unreadBooks,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -2347,6 +2494,26 @@ private fun AnalyticsOverviewGrid(stats: LibraryStats) {
 }
 
 @Composable
+private fun MiniPulseMetric(
+    label: String,
+    count: Int,
+    color: Color,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(color))
+        Text(
+            text = "$count",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+@Composable
 private fun MetricTile(
     icon: ImageVector,
     label: String,
@@ -2378,14 +2545,15 @@ private fun MetricTile(
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = value,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                 )
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
@@ -2502,7 +2670,7 @@ private fun StatusLegendItem(
                 Text(
                     text = "$count ($pct%)",
                     style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
@@ -2544,7 +2712,7 @@ private fun TopAuthorsLeaderboardCard(authors: Map<String, Int>) {
                             Text(
                                 text = "${index + 1}",
                                 style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = when (index) {
                                     0 -> MaterialTheme.colorScheme.onPrimaryContainer
                                     1 -> MaterialTheme.colorScheme.onSecondaryContainer
@@ -2570,7 +2738,7 @@ private fun TopAuthorsLeaderboardCard(authors: Map<String, Int>) {
                             Text(
                                 text = stringResource(R.string.stats_books_count_format, count),
                                 style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -2630,7 +2798,7 @@ private fun FormatDistributionCard(formats: Map<String, Int>) {
                             Text(
                                 text = count.toString(),
                                 style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             )
@@ -2676,23 +2844,24 @@ private fun PublicationDecadesCard(decades: Map<String, Int>) {
                         Text(
                             text = entry.value.toString(),
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 10.sp,
                         )
                         Spacer(Modifier.height(4.dp))
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth()
+                                .width(20.dp)
                                 .height(animatedHeight)
-                                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 4.dp, bottomEnd = 4.dp))
-                                .background(chartColor(index)),
+                                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(6.dp))
                         Text(
                             text = entry.key,
                             style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 9.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2756,6 +2925,7 @@ private fun LanguageBarCard(languages: Map<String, Int>) {
                             Text(
                                 text = languageLabel(LocalContext.current, entry.key),
                                 style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
@@ -2816,7 +2986,7 @@ private fun GenreBarsCard(genres: Map<String, Int>, modifier: Modifier = Modifie
                             Text(
                                 text = stringResource(R.string.stats_books_count_format, entry.value),
                                 style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
                             )
                         }
@@ -2892,13 +3062,14 @@ private fun ReadingRingCard(read: Int, goal: Int, modifier: Modifier = Modifier)
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "$percentage%",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         text = stringResource(R.string.stats_goal_count, goal),
                         style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -2915,7 +3086,7 @@ private fun ReadingRingCard(read: Int, goal: Int, modifier: Modifier = Modifier)
                     Text(
                         text = "$read of $goal books completed",
                         style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     )
@@ -2924,6 +3095,7 @@ private fun ReadingRingCard(read: Int, goal: Int, modifier: Modifier = Modifier)
                 Text(
                     text = if (remaining == 0) "Goal achieved for this year!" else "$remaining more to reach your annual goal",
                     style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -2959,7 +3131,7 @@ private fun MostBorrowedCard(items: List<BookBorrowStat>) {
                                 Text(
                                     text = "${index + 1}",
                                     style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.ExtraBold,
                                     color = if (index == 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -2967,6 +3139,7 @@ private fun MostBorrowedCard(items: List<BookBorrowStat>) {
                         Text(
                             text = item.title,
                             style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -2978,7 +3151,7 @@ private fun MostBorrowedCard(items: List<BookBorrowStat>) {
                             Text(
                                 text = stringResource(R.string.borrow_count, item.borrowCount),
                                 style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             )
@@ -4927,7 +5100,7 @@ private fun BookDetailSheet(
 private fun MetadataChip(icon: ImageVector, label: String) {
     AssistChip(
         onClick = {},
-        label = { Text(label, fontSize = 12.sp, maxLines = 1) },
+        label = { Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 1) },
         leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp)) },
         shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)),
     )
@@ -5604,6 +5777,7 @@ private fun CountChip(text: String, color: Color = MaterialTheme.colorScheme.sur
         text = text,
         modifier = Modifier.clip(CircleShape).background(color).padding(horizontal = 7.dp, vertical = 3.dp),
         style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
         maxLines = 1,
     )
 }
