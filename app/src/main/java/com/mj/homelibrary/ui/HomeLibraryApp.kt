@@ -541,6 +541,22 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                 )
             }
             }
+            AnimatedVisibility(
+                visible = fabExpanded,
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(140)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.52f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { fabExpanded = false },
+                        ),
+                )
+            }
         }
     }
 
@@ -3806,7 +3822,7 @@ private fun FabMenuItem(icon: ImageVector, label: String, placement: FabPlacemen
     val pressScale = rememberPressScale(interactionSource)
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier
             .scale(pressScale)
             .clickable(
@@ -3819,19 +3835,20 @@ private fun FabMenuItem(icon: ImageVector, label: String, placement: FabPlacemen
             FabMenuButton(icon = icon, label = label, onClick = onClick, interactionSource = interactionSource)
         }
         Surface(
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            shadowElevation = 3.dp,
+            shadowElevation = 8.dp,
+            tonalElevation = 6.dp,
             border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                1.5.dp,
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
             ),
         ) {
             Text(
                 text = label,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
@@ -3851,18 +3868,18 @@ private fun FabMenuButton(
     SmallFloatingActionButton(
         onClick = onClick,
         interactionSource = interactionSource,
-        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
-        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         elevation = FloatingActionButtonDefaults.elevation(
-            defaultElevation = 3.dp,
-            pressedElevation = 6.dp,
-            hoveredElevation = 4.dp,
-            focusedElevation = 4.dp,
+            defaultElevation = 6.dp,
+            pressedElevation = 10.dp,
+            hoveredElevation = 8.dp,
+            focusedElevation = 8.dp,
         ),
-        modifier = Modifier.size(48.dp),
+        modifier = Modifier.size(52.dp),
     ) {
-        Icon(icon, contentDescription = label, modifier = Modifier.size(24.dp))
+        Icon(icon, contentDescription = label, modifier = Modifier.size(26.dp))
     }
 }
 
