@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// See root build.gradle.kts for why this must stay on the project's drive.
 val homeLibraryBuildRoot = providers.gradleProperty("homeLibraryBuildRoot").orElse(".out-redesign").get()
 layout.buildDirectory.set(rootProject.file("$homeLibraryBuildRoot/app-build"))
 

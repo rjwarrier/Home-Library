@@ -46,9 +46,12 @@ class LoanReminderWorker(
             .setAutoCancel(true)
             .build()
 
-        NotificationManagerCompat.from(applicationContext).notify(loanId.toInt(), notification)
+        NotificationManagerCompat.from(applicationContext).notify(notificationIdFor(loanId), notification)
         return Result.success()
     }
+
+    private fun notificationIdFor(loanId: Long): Int =
+        NOTIFICATION_ID_BASE + (loanId.hashCode() and 0x0FFFFFFF)
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -66,5 +69,9 @@ class LoanReminderWorker(
         const val KEY_LOAN_ID = "loan_id"
         const val KEY_BOOK_ID = "book_id"
         private const val CHANNEL_ID = "loan_reminders"
+
+        // Kept well clear of BackupReminderWorker.NOTIFICATION_ID (9001) so a loan
+        // reminder can never silently replace the backup reminder notification.
+        private const val NOTIFICATION_ID_BASE = 100_000
     }
 }

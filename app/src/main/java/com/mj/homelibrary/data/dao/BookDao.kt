@@ -32,9 +32,6 @@ interface BookDao {
     @Update
     suspend fun update(book: BookEntity)
 
-    @Query("UPDATE books SET locationId = :locationId WHERE id IN (:bookIds)")
-    suspend fun updateLocations(bookIds: Set<Long>, locationId: Long)
-
     @Query("UPDATE books SET locationId = :locationId, positionNote = :positionNote WHERE id = :bookId")
     suspend fun updateLocation(bookId: Long, locationId: Long, positionNote: String?)
 

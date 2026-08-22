@@ -13,6 +13,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import com.mj.homelibrary.data.BoundedLruCache
+import java.io.IOException
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -206,10 +208,23 @@ class BookLookupService(private val context: Context) {
         }
         return try {
             if (connection.responseCode !in 200..299) return null
-            JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            JSONObject(connection.inputStream.readUtf8TextLimited(MAX_RESPONSE_CHARS))
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun InputStream.readUtf8TextLimited(maxChars: Int): String {
+        val reader = bufferedReader(Charsets.UTF_8)
+        val result = StringBuilder(minOf(maxChars, DEFAULT_BUFFER_SIZE))
+        val buffer = CharArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val count = reader.read(buffer)
+            if (count < 0) break
+            if (result.length + count > maxChars) throw IOException("Lookup response exceeds the allowed size")
+            result.append(buffer, 0, count)
+        }
+        return result.toString()
     }
 
     private fun googleCoverUrls(url: String): List<String> =
@@ -262,7 +277,7 @@ class BookLookupService(private val context: Context) {
         if (this == null) return null
         return listOf("extraLarge", "large", "medium", "small", "thumbnail", "smallThumbnail")
             .firstNotNullOfOrNull { key -> optString(key).takeIf(String::isNotBlank) }
-            ?.replace("http://", "https://")
+            ?.let { url -> if (url.startsWith("http://")) "https://" + url.removePrefix("http://") else url }
     }
 
     private fun JSONObject.optDescription(): String? {
@@ -315,6 +330,7 @@ class BookLookupService(private val context: Context) {
         const val CACHE_TTL_MILLIS = 6 * 60 * 60 * 1000L
         const val METADATA_CACHE_MAX_ENTRIES = 300
         const val COVER_CANDIDATE_CACHE_MAX_ENTRIES = 300
+        const val MAX_RESPONSE_CHARS = 4 * 1024 * 1024
     }
 
     private data class CacheEntry<T>(

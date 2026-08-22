@@ -73,10 +73,6 @@ class HomeLibraryRepository(
         }
     }
 
-    suspend fun moveBooks(bookIds: Set<Long>, locationId: Long) {
-        if (bookIds.isNotEmpty()) bookDao.updateLocations(bookIds, locationId)
-    }
-
     suspend fun moveBook(bookId: Long, room: String, unit: String, shelf: String, positionNote: String?) {
         val locationId = locationDao.getOrCreate(room, unit, shelf)
         bookDao.updateLocation(
@@ -100,15 +96,25 @@ class HomeLibraryRepository(
     }
 
     suspend fun deleteBooks(bookIds: Set<Long>) {
-        if (bookIds.isNotEmpty()) bookDao.deleteBooks(bookIds)
+        forEachIdChunk(bookIds) { bookDao.deleteBooks(it) }
     }
 
     suspend fun updateReadStatus(bookIds: Set<Long>, statusCode: String) {
-        if (bookIds.isNotEmpty()) bookDao.updateReadStatus(bookIds, statusCode)
+        forEachIdChunk(bookIds) { bookDao.updateReadStatus(it, statusCode) }
     }
 
     suspend fun updateLocationForBooks(bookIds: Set<Long>, locationId: Long?) {
-        if (bookIds.isNotEmpty()) bookDao.updateLocationForBooks(bookIds, locationId)
+        forEachIdChunk(bookIds) { bookDao.updateLocationForBooks(it, locationId) }
+    }
+
+    /**
+     * Splits a bulk `WHERE id IN (:ids)` operation into chunks so it stays under SQLite's
+     * per-statement bound-parameter limit (SQLITE_MAX_VARIABLE_NUMBER, as low as 999 on
+     * some Android builds) when the user selects a large number of books at once.
+     */
+    private suspend fun forEachIdChunk(ids: Set<Long>, action: suspend (Set<Long>) -> Unit) {
+        if (ids.isEmpty()) return
+        ids.chunked(SQL_IN_CLAUSE_CHUNK_SIZE).forEach { action(it.toSet()) }
     }
 
     suspend fun exportHtmlCatalog(uri: Uri, targetBookIds: Set<Long>? = null) = backupRepository.exportHtmlCatalog(uri, targetBookIds)
@@ -179,5 +185,9 @@ class HomeLibraryRepository(
             .setInputData(input)
             .build()
         workManager.enqueue(request)
+    }
+
+    private companion object {
+        const val SQL_IN_CLAUSE_CHUNK_SIZE = 900
     }
 }

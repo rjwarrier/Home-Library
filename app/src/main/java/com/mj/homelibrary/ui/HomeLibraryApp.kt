@@ -32,7 +32,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.InteractionSource
@@ -89,6 +91,7 @@ import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.Edit
@@ -288,6 +291,9 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     var returnLoan by remember { mutableStateOf<LoanEntity?>(null) }
     var bulkQueue by remember { mutableStateOf<List<String>>(emptyList()) }
     var bulkIndex by remember { mutableStateOf(0) }
+    var showBulkStatusSheet by remember { mutableStateOf(false) }
+    var showBulkMoveSheet by remember { mutableStateOf(false) }
+    var showBulkDeleteDialog by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
 
     fun openBookForIsbn(isbn: String) {
@@ -451,6 +457,19 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                             loanFlowBook = item.book
                         }
                     },
+                    selectionMode = state.transient.selectionMode,
+                    selectedBookIds = state.transient.selectedBookIds,
+                    onEnterSelectionMode = { viewModel.toggleSelectionMode(true) },
+                    onEnterSelection = { bookId ->
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        viewModel.toggleSelectBook(bookId)
+                    },
+                    onToggleSelectBook = viewModel::toggleSelectBook,
+                    onSelectAllVisible = { viewModel.selectAllVisible(state.visibleBooks.map { it.book.id }) },
+                    onClearSelection = viewModel::clearSelection,
+                    onBulkSetStatus = { showBulkStatusSheet = true },
+                    onBulkMove = { showBulkMoveSheet = true },
+                    onBulkDelete = { showBulkDeleteDialog = true },
                 )
 
                 HomeTab.Shelves -> ShelvesScreen(
@@ -706,6 +725,41 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
         )
     }
 
+    if (showBulkStatusSheet) {
+        BulkStatusSheet(
+            selectedCount = state.transient.selectedBookIds.size,
+            onDismiss = { showBulkStatusSheet = false },
+            onSelectStatus = { code ->
+                viewModel.bulkSetReadStatus(code)
+                showBulkStatusSheet = false
+            },
+        )
+    }
+
+    if (showBulkMoveSheet) {
+        BulkMoveSheet(
+            selectedCount = state.transient.selectedBookIds.size,
+            locations = state.locations,
+            onDismiss = { showBulkMoveSheet = false },
+            onSelectLocation = { locationId ->
+                viewModel.bulkSetLocation(locationId)
+                showBulkMoveSheet = false
+            },
+        )
+    }
+
+    if (showBulkDeleteDialog) {
+        BulkDeleteDialog(
+            selectedCount = state.transient.selectedBookIds.size,
+            onDismiss = { showBulkDeleteDialog = false },
+            onDelete = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                viewModel.bulkDeleteSelected()
+                showBulkDeleteDialog = false
+            },
+        )
+    }
+
     auditShelf?.let { location ->
         ShelfAuditSheet(
             location = location,
@@ -853,6 +907,60 @@ private fun HeaderIconButton(icon: ImageVector, contentDescription: String, onCl
 }
 
 @Composable
+private fun BulkSelectionHeader(
+    selectedCount: Int,
+    onClose: () -> Unit,
+    onSelectAll: () -> Unit,
+    onSetStatus: () -> Unit,
+    onMove: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = dimensionResource(R.dimen.space_lg)),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            HeaderIconButton(
+                icon = Icons.Outlined.Close,
+                contentDescription = stringResource(R.string.bulk_action_clear_selection),
+                onClick = onClose,
+            )
+            Text(
+                text = stringResource(R.string.bulk_selected_count, selectedCount),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            HeaderIconButton(
+                icon = Icons.Outlined.DoneAll,
+                contentDescription = stringResource(R.string.bulk_action_select_all),
+                onClick = onSelectAll,
+            )
+            HeaderIconButton(
+                icon = Icons.Outlined.Bookmark,
+                contentDescription = stringResource(R.string.bulk_action_set_status),
+                onClick = onSetStatus,
+            )
+            HeaderIconButton(
+                icon = Icons.Outlined.Place,
+                contentDescription = stringResource(R.string.bulk_action_move),
+                onClick = onMove,
+            )
+            HeaderIconButton(
+                icon = Icons.Outlined.Delete,
+                contentDescription = stringResource(R.string.bulk_action_delete),
+                onClick = onDelete,
+            )
+        }
+    }
+}
+
+@Composable
 private fun LibraryScreen(
     state: HomeLibraryUiState,
     onQueryChange: (String) -> Unit,
@@ -869,26 +977,54 @@ private fun LibraryScreen(
     onBookClick: (BookListItem) -> Unit,
     onScanFirst: () -> Unit,
     onSwipeAction: (BookListItem) -> Unit = {},
+    selectionMode: Boolean = false,
+    selectedBookIds: Set<Long> = emptySet(),
+    onEnterSelectionMode: () -> Unit = {},
+    onEnterSelection: (Long) -> Unit = {},
+    onToggleSelectBook: (Long) -> Unit = {},
+    onSelectAllVisible: () -> Unit = {},
+    onClearSelection: () -> Unit = {},
+    onBulkSetStatus: () -> Unit = {},
+    onBulkMove: () -> Unit = {},
+    onBulkDelete: () -> Unit = {},
 ) {
     val languageCount = state.stats.languages.size
     ContentColumn {
-        ScreenHeader(
-            titleRes = R.string.screen_library,
-            meta = stringResource(
-                R.string.library_meta,
-                state.allBooks.size,
-                state.activeLoans.size,
-                languageCount,
-            ),
-            actions = {
-                HeaderIconButton(
-                    icon = if (state.filters.gridMode) Icons.Outlined.ViewList else Icons.Outlined.GridView,
-                    contentDescription = stringResource(R.string.content_description_switch_view),
-                    onClick = { onGridModeChange(!state.filters.gridMode) },
-                )
-                SortMenu(selected = state.filters.sort, onSortChange = onSortChange)
-            },
-        )
+        if (selectionMode) {
+            BulkSelectionHeader(
+                selectedCount = selectedBookIds.size,
+                onClose = onClearSelection,
+                onSelectAll = onSelectAllVisible,
+                onSetStatus = onBulkSetStatus,
+                onMove = onBulkMove,
+                onDelete = onBulkDelete,
+            )
+        } else {
+            ScreenHeader(
+                titleRes = R.string.screen_library,
+                meta = stringResource(
+                    R.string.library_meta,
+                    state.allBooks.size,
+                    state.activeLoans.size,
+                    languageCount,
+                ),
+                actions = {
+                    if (state.allBooks.isNotEmpty()) {
+                        HeaderIconButton(
+                            icon = Icons.Outlined.CheckBoxOutlineBlank,
+                            contentDescription = stringResource(R.string.content_description_enter_selection_mode),
+                            onClick = onEnterSelectionMode,
+                        )
+                    }
+                    HeaderIconButton(
+                        icon = if (state.filters.gridMode) Icons.Outlined.ViewList else Icons.Outlined.GridView,
+                        contentDescription = stringResource(R.string.content_description_switch_view),
+                        onClick = { onGridModeChange(!state.filters.gridMode) },
+                    )
+                    SortMenu(selected = state.filters.sort, onSortChange = onSortChange)
+                },
+            )
+        }
         SearchPill(
             query = state.filters.query,
             onQueryChange = onQueryChange,
@@ -931,7 +1067,14 @@ private fun LibraryScreen(
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 items(state.visibleBooks, key = { it.book.id }) { item ->
-                    BookGridCard(item = item, modifier = Modifier.animateItem(), onClick = { onBookClick(item) })
+                    BookGridCard(
+                        item = item,
+                        modifier = Modifier.animateItem(),
+                        selectionMode = selectionMode,
+                        selected = item.book.id in selectedBookIds,
+                        onClick = { if (selectionMode) onToggleSelectBook(item.book.id) else onBookClick(item) },
+                        onLongClick = { onEnterSelection(item.book.id) },
+                    )
                 }
             }
 
@@ -944,8 +1087,11 @@ private fun LibraryScreen(
                     BookListRow(
                         item = item,
                         modifier = Modifier.animateItem(),
-                        onClick = { onBookClick(item) },
-                        onSwipeAction = onSwipeAction,
+                        selectionMode = selectionMode,
+                        selected = item.book.id in selectedBookIds,
+                        onClick = { if (selectionMode) onToggleSelectBook(item.book.id) else onBookClick(item) },
+                        onLongClick = { onEnterSelection(item.book.id) },
+                        onSwipeAction = if (selectionMode) null else onSwipeAction,
                     )
                 }
             }
@@ -1257,14 +1403,53 @@ private fun MorphChip(selected: Boolean, label: String, trailing: ImageVector? =
 }
 
 @Composable
-private fun BookGridCard(item: BookListItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun SelectionMarker(selected: Boolean, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+            .border(
+                width = 1.5.dp,
+                color = if (selected) Color.Transparent else MaterialTheme.colorScheme.outline,
+                shape = CircleShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected) {
+            Icon(
+                Icons.Outlined.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun BookGridCard(
+    item: BookListItem,
+    modifier: Modifier = Modifier,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
+) {
     val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressScale by rememberPressScale(interactionSource)
     Column(
         modifier = modifier
             .scale(pressScale)
-            .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick),
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick,
+                onLongClick = onLongClick,
+                onLongClickLabel = stringResource(R.string.content_description_enter_selection),
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box {
@@ -1276,9 +1461,17 @@ private fun BookGridCard(item: BookListItem, modifier: Modifier = Modifier, onCl
                     .shadow(6.dp, RoundedCornerShape(16.dp), clip = false),
                 titleSize = 16,
             )
-            if (item.isOnLoan) {
+            if (item.isOnLoan && !selectionMode) {
                 LoanBadge(
                     item = item,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp),
+                )
+            }
+            if (selectionMode) {
+                SelectionMarker(
+                    selected = selected,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(10.dp),
@@ -1311,12 +1504,15 @@ private fun BookGridCard(item: BookListItem, modifier: Modifier = Modifier, onCl
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun BookListRow(
     item: BookListItem,
     modifier: Modifier = Modifier,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
     onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
     onSwipeAction: ((BookListItem) -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -1357,7 +1553,11 @@ private fun BookListRow(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick),
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                    onLongClickLabel = stringResource(R.string.content_description_enter_selection),
+                ),
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 1.dp,
@@ -1367,6 +1567,9 @@ private fun BookListRow(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (selectionMode) {
+                    SelectionMarker(selected = selected)
+                }
                 BookCover(
                     book = item.book,
                     modifier = Modifier
@@ -2001,15 +2204,15 @@ private fun AnalyticsOverviewGrid(stats: LibraryStats) {
             )
             MetricTile(
                 icon = Icons.Outlined.Description,
-                label = "Total Pages",
+                label = stringResource(R.string.stats_total_pages),
                 value = if (animatedPages > 0) String.format("%,d", animatedPages) else "—",
                 color = MaterialTheme.colorScheme.tertiaryContainer,
                 modifier = Modifier.weight(1f)
             )
             MetricTile(
                 icon = Icons.Outlined.Star,
-                label = "Avg Rating",
-                value = if (stats.averageRating > 0f) String.format("%.1f ★", stats.averageRating) else "—",
+                label = stringResource(R.string.stats_avg_rating),
+                value = if (stats.averageRating > 0f) stringResource(R.string.stats_avg_rating_value, stats.averageRating) else "—",
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.weight(1f)
             )
@@ -2048,7 +2251,7 @@ private fun ReadingStatusSegmentedCard(stats: LibraryStats) {
 
     ChartCard(title = R.string.screen_stats) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Reading Status Breakdown", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.stats_reading_status_breakdown), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Row(
                 modifier = Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(7.dp)),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -2068,11 +2271,11 @@ private fun ReadingStatusSegmentedCard(stats: LibraryStats) {
             }
 
             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                StatusLegendItem(color = MaterialTheme.colorScheme.primary, label = "Read", count = stats.finishedBooks, pct = finishedPct)
-                StatusLegendItem(color = MaterialTheme.colorScheme.tertiary, label = "Reading", count = stats.readingBooks, pct = readingPct)
-                StatusLegendItem(color = MaterialTheme.colorScheme.outlineVariant, label = "Unread", count = stats.unreadBooks, pct = unreadPct)
+                StatusLegendItem(color = MaterialTheme.colorScheme.primary, label = stringResource(ReadStatusCode.Finished.labelRes), count = stats.finishedBooks, pct = finishedPct)
+                StatusLegendItem(color = MaterialTheme.colorScheme.tertiary, label = stringResource(ReadStatusCode.Reading.labelRes), count = stats.readingBooks, pct = readingPct)
+                StatusLegendItem(color = MaterialTheme.colorScheme.outlineVariant, label = stringResource(ReadStatusCode.Unread.labelRes), count = stats.unreadBooks, pct = unreadPct)
                 if (stats.abandonedBooks > 0) {
-                    StatusLegendItem(color = MaterialTheme.colorScheme.error, label = "Abandoned", count = stats.abandonedBooks, pct = abandonedPct)
+                    StatusLegendItem(color = MaterialTheme.colorScheme.error, label = stringResource(ReadStatusCode.Abandoned.labelRes), count = stats.abandonedBooks, pct = abandonedPct)
                 }
             }
         }
@@ -2083,7 +2286,7 @@ private fun ReadingStatusSegmentedCard(stats: LibraryStats) {
 private fun StatusLegendItem(color: Color, label: String, count: Int, pct: Int) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(color))
-        Text("$label: $count ($pct%)", style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.stats_status_legend_item, label, count, pct), style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -2092,12 +2295,12 @@ private fun TopAuthorsLeaderboardCard(authors: Map<String, Int>) {
     ChartCard(title = R.string.field_authors) {
         val maxCount = authors.values.maxOrNull()?.coerceAtLeast(1) ?: 1
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Most Collected Authors", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.stats_most_collected_authors), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             authors.entries.take(5).forEach { (author, count) ->
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(author, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("$count books", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.stats_books_count_format, count), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Box(
                         modifier = Modifier
@@ -2116,7 +2319,7 @@ private fun TopAuthorsLeaderboardCard(authors: Map<String, Int>) {
 private fun FormatDistributionCard(formats: Map<String, Int>) {
     ChartCard(title = R.string.format_label) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Bindings & Formats", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.stats_bindings_formats), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 formats.forEach { (code, count) ->
                     val label = BookFormatCode.fromCode(code).labelRes
@@ -2125,7 +2328,7 @@ private fun FormatDistributionCard(formats: Map<String, Int>) {
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     ) {
                         Text(
-                            text = "${stringResource(label)}: $count",
+                            text = stringResource(R.string.stats_format_count_format, stringResource(label), count),
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.labelMedium,
                         )
@@ -2142,7 +2345,7 @@ private fun PublicationDecadesCard(decades: Map<String, Int>) {
     val maxCount = sorted.maxOfOrNull { it.value }?.coerceAtLeast(1) ?: 1
     ChartCard(title = R.string.field_published_year) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Publication Timeline", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.stats_publication_timeline), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Row(
                 modifier = Modifier.fillMaxWidth().height(90.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -4631,6 +4834,136 @@ private fun DeleteBookDialog(
             }
         },
     )
+}
+
+@Composable
+private fun BulkDeleteDialog(
+    selectedCount: Int,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text(stringResource(R.string.bulk_delete_title, selectedCount), style = MaterialTheme.typography.headlineSmall) },
+        text = { Text(stringResource(R.string.bulk_delete_body)) },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDelete,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Text(stringResource(R.string.action_delete))
+            }
+        },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BulkStatusSheet(
+    selectedCount: Int,
+    onDismiss: () -> Unit,
+    onSelectStatus: (String) -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.bulk_status_title, selectedCount),
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+            ReadStatusCode.entries.forEach { status ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onSelectStatus(status.code) }
+                        .padding(vertical = 14.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(Icons.Outlined.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(status.labelRes), style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BulkMoveSheet(
+    selectedCount: Int,
+    locations: List<LocationEntity>,
+    onDismiss: () -> Unit,
+    onSelectLocation: (Long?) -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 480.dp)
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+        ) {
+            item {
+                Text(
+                    text = stringResource(R.string.bulk_move_title, selectedCount),
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onSelectLocation(null) }
+                        .padding(vertical = 14.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(Icons.Outlined.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.bulk_move_unassign), style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+            items(locations, key = { it.id }) { location ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onSelectLocation(location.id) }
+                        .padding(vertical = 14.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(Icons.Outlined.Place, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text = "${location.room} › ${location.unit} › ${location.shelf}",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+            }
+            item { Spacer(Modifier.height(12.dp)) }
+        }
+    }
 }
 
 @Composable

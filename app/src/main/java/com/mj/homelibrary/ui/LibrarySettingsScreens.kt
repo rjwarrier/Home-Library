@@ -299,12 +299,12 @@ fun DataRecoverySettingsScreen(
                     OutlinedButton(onClick = { htmlExporter.launch(htmlFilename) }, modifier = Modifier.weight(1f)) {
                         Icon(Icons.Outlined.Code, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.size(6.dp))
-                        Text("Export HTML")
+                        Text(stringResource(R.string.action_export_html))
                     }
                     OutlinedButton(onClick = { pdfExporter.launch(pdfFilename) }, modifier = Modifier.weight(1f)) {
                         Icon(Icons.Outlined.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.size(6.dp))
-                        Text("Export PDF")
+                        Text(stringResource(R.string.action_export_pdf))
                     }
                 }
                 OutlinedButton(

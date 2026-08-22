@@ -609,11 +609,6 @@ data class TransientState(
     val failedLookupIsbn: String? = null,
     val selectionMode: Boolean = false,
     val selectedBookIds: Set<Long> = emptySet(),
-    val lastUsedLocationId: Long? = null,
-    val lastUsedRoom: String = "",
-    val lastUsedUnit: String = "",
-    val lastUsedShelf: String = "",
-    val lastUsedReadStatus: String = ReadStatusCode.Unread.code,
 )
 
 data class BookDraft(
@@ -793,6 +788,7 @@ data class LibraryStats(
                 finishedBooks = books.count { it.readStatusCode == ReadStatusCode.Finished.code },
                 readingBooks = books.count { it.readStatusCode == ReadStatusCode.Reading.code },
                 unreadBooks = books.count { it.readStatusCode == ReadStatusCode.Unread.code },
+                abandonedBooks = books.count { it.readStatusCode == ReadStatusCode.Abandoned.code },
                 readThisYear = books.count {
                     it.readStatusCode == ReadStatusCode.Finished.code &&
                         it.addedDateEpochMillis.toLocalYear() == currentYear

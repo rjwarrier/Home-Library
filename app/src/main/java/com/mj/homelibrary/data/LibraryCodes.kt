@@ -17,7 +17,8 @@ enum class BookFormatCode(val code: String, @StringRes val labelRes: Int) {
 enum class ReadStatusCode(val code: String, @StringRes val labelRes: Int) {
     Unread("unread", R.string.status_unread),
     Reading("reading", R.string.status_reading),
-    Finished("finished", R.string.status_finished);
+    Finished("finished", R.string.status_finished),
+    Abandoned("abandoned", R.string.status_abandoned);
 
     companion object {
         fun fromCode(code: String): ReadStatusCode = entries.firstOrNull { it.code == code } ?: Unread
