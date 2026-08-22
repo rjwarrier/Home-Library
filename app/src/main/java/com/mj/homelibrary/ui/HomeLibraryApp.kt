@@ -137,6 +137,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -3800,29 +3802,67 @@ private fun StaggeredFabMenuItem(index: Int, expanded: Boolean, content: @Compos
 
 @Composable
 private fun FabMenuItem(icon: ImageVector, label: String, placement: FabPlacement, onClick: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPressScale(interactionSource)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .scale(pressScale)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+    ) {
         if (placement == FabPlacement.LEFT) {
-            FabMenuIcon(icon = icon, label = label, onClick = onClick)
+            FabMenuButton(icon = icon, label = label, onClick = onClick, interactionSource = interactionSource)
         }
-        Surface(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)), color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
-            Text(label, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            shadowElevation = 3.dp,
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+            ),
+        ) {
+            Text(
+                text = label,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
         }
         if (placement == FabPlacement.RIGHT) {
-            FabMenuIcon(icon = icon, label = label, onClick = onClick)
+            FabMenuButton(icon = icon, label = label, onClick = onClick, interactionSource = interactionSource)
         }
     }
 }
 
 @Composable
-private fun FabMenuIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier.size(52.dp).clickable(onClick = onClick),
+private fun FabMenuButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
+) {
+    SmallFloatingActionButton(
+        onClick = onClick,
+        interactionSource = interactionSource,
         shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
-        color = MaterialTheme.colorScheme.secondaryContainer,
+        containerColor = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        tonalElevation = 4.dp,
+        elevation = FloatingActionButtonDefaults.elevation(
+            defaultElevation = 3.dp,
+            pressedElevation = 6.dp,
+            hoveredElevation = 4.dp,
+            focusedElevation = 4.dp,
+        ),
+        modifier = Modifier.size(48.dp),
     ) {
-        Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = label) }
+        Icon(icon, contentDescription = label, modifier = Modifier.size(24.dp))
     }
 }
 
