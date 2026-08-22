@@ -596,6 +596,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             onLookup = viewModel::lookupIsbn,
             onSilentLookup = viewModel::lookupIsbnSilently,
             onFindCoverCandidates = viewModel::findCoverCandidates,
+            onSearchByTitleAndAuthor = viewModel::searchBooksByTitleAndAuthor,
             onSave = { draft -> viewModel.addBook(draft) { showAddBook = false; advanceBulkQueue() } },
         )
     }
@@ -635,6 +636,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             onLookup = viewModel::lookupIsbn,
             onSilentLookup = viewModel::lookupIsbnSilently,
             onFindCoverCandidates = viewModel::findCoverCandidates,
+            onSearchByTitleAndAuthor = viewModel::searchBooksByTitleAndAuthor,
             onSave = { draft ->
                 viewModel.addBook(draft) {
                     editBook = null
@@ -680,6 +682,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             onLookup = viewModel::lookupIsbn,
             onSilentLookup = viewModel::lookupIsbnSilently,
             onFindCoverCandidates = viewModel::findCoverCandidates,
+            onSearchByTitleAndAuthor = viewModel::searchBooksByTitleAndAuthor,
             onSave = { draft ->
                 viewModel.addBook(draft) {
                     cloneBook = null
@@ -3882,6 +3885,7 @@ private fun AddBookSheet(
     onLookup: (String, (com.mj.homelibrary.data.remote.BookMetadata?) -> Unit) -> Unit,
     onSilentLookup: (String, (com.mj.homelibrary.data.remote.BookMetadata?) -> Unit) -> Unit,
     onFindCoverCandidates: (String, String, List<String>, (List<String>) -> Unit) -> Unit,
+    onSearchByTitleAndAuthor: (String, List<String>, (List<com.mj.homelibrary.data.remote.BookMetadata>) -> Unit) -> Unit = { _, _, cb -> cb(emptyList()) },
     onSave: (BookDraft) -> Unit,
 ) {
     val editing = initialDraft != null
@@ -3899,6 +3903,10 @@ private fun AddBookSheet(
     var findCoversInProgress by remember { mutableStateOf(false) }
     var showCoverPicker by remember { mutableStateOf(false) }
     var autoLookupFailed by remember { mutableStateOf(false) }
+    var titleMatches by remember { mutableStateOf<List<com.mj.homelibrary.data.remote.BookMetadata>>(emptyList()) }
+    var showTitleMatchPicker by remember { mutableStateOf(false) }
+    var titleSearchInProgress by remember { mutableStateOf(false) }
+    var noTitleMatchesFound by remember { mutableStateOf(false) }
     val context = LocalContext.current
     fun subGenreOptionsFor(mainGenre: String): List<String> =
         subGenresByMainGenre.entries
@@ -3946,7 +3954,7 @@ private fun AddBookSheet(
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(stringResource(if (editing) R.string.edit_book_title else R.string.add_book_title), style = MaterialTheme.typography.headlineSmall)
+                    Text(stringResource(if (editing) R.string.edit_book_title else R.string.add_book_title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(
                         text = stringResource(
                             when {
@@ -3977,16 +3985,42 @@ private fun AddBookSheet(
                     Text(
                         stringResource(R.string.bulk_review_body, bulkProgress.first, bulkProgress.second),
                         style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
                     TextButton(onClick = onSkip) {
-                        Text(stringResource(R.string.action_skip))
+                        Text(stringResource(R.string.action_skip), fontWeight = FontWeight.Bold)
                     }
                 }
             }
-            if (lookupInProgress) {
+            if (lookupInProgress || titleSearchInProgress) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Text(stringResource(R.string.lookup_in_progress), style = MaterialTheme.typography.bodySmall)
+                Text(
+                    if (titleSearchInProgress) stringResource(R.string.autofill_searching) else stringResource(R.string.lookup_in_progress),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (noTitleMatchesFound) {
+                Surface(
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            stringResource(R.string.autofill_no_results),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { noTitleMatchesFound = false }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Outlined.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
             }
             if (autoLookupFailed && draft.title.isBlank()) {
                 AutoLookupFailedBanner(isbn = draft.isbn, onDismiss = { autoLookupFailed = false })
@@ -3998,19 +4032,20 @@ private fun AddBookSheet(
                 draft = draft,
                 onDraftChange = { draft = it },
                 onPickCover = { coverPicker.launch(arrayOf("image/*")) },
-                onFindCovers = draft.isbn.validIsbnOrNull()?.let { validIsbn ->
+                onFindCovers = if (draft.isbn.validIsbnOrNull() != null || draft.title.isNotBlank()) {
                     {
                         findCoversInProgress = true
-                        onFindCoverCandidates(validIsbn, draft.title, draft.authors.split(",").map(String::trim)) { results ->
+                        onFindCoverCandidates(draft.isbn, draft.title, draft.authors.split(",").map(String::trim)) { results ->
                             findCoversInProgress = false
                             coverCandidates = results
                             showCoverPicker = true
                         }
                     }
-                },
+                } else null,
                 findCoversInProgress = findCoversInProgress,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                val isValidIsbn = draft.isbn.validIsbnOrNull() != null
                 TextFieldLine(
                     value = draft.isbn,
                     onValueChange = { draft = draft.copy(isbn = it) },
@@ -4018,6 +4053,22 @@ private fun AddBookSheet(
                     modifier = Modifier.weight(1f),
                     monospace = true,
                 )
+                if (isValidIsbn) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Outlined.Check,
+                            contentDescription = stringResource(R.string.isbn_valid_badge),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
                 IconButton(
                     modifier = Modifier
                         .size(56.dp)
@@ -4036,22 +4087,49 @@ private fun AddBookSheet(
                 ) {
                     Icon(Icons.Outlined.CloudDone, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.action_lookup_isbn))
+                    Text(stringResource(R.string.action_lookup_isbn), fontWeight = FontWeight.SemiBold)
                 }
             }
-            Text(stringResource(R.string.section_metadata).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.section_metadata).uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.primary)
             TextFieldLine(draft.title, { draft = draft.copy(title = it) }, R.string.field_title)
-            SuggestedTextFieldLine(
-                value = draft.seriesName,
-                onValueChange = { draft = draft.copy(seriesName = it) },
-                suggestions = seriesSuggestions,
-                label = R.string.field_series_name,
-            )
             SuggestedTextFieldLine(
                 value = draft.authors,
                 onValueChange = { draft = draft.copy(authors = it) },
                 suggestions = authorSuggestions,
                 label = R.string.field_authors,
+            )
+
+            // Online Title/Author Autofill Button
+            if (draft.title.isNotBlank() && !lookupInProgress && !titleSearchInProgress) {
+                OutlinedButton(
+                    onClick = {
+                        titleSearchInProgress = true
+                        noTitleMatchesFound = false
+                        val authorsList = draft.authors.split(",").map(String::trim).filter(String::isNotBlank)
+                        onSearchByTitleAndAuthor(draft.title, authorsList) { results ->
+                            titleSearchInProgress = false
+                            if (results.isEmpty()) {
+                                noTitleMatchesFound = true
+                            } else {
+                                titleMatches = results
+                                showTitleMatchPicker = true
+                            }
+                        }
+                    },
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Outlined.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.action_autofill_title_author), fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            SuggestedTextFieldLine(
+                value = draft.seriesName,
+                onValueChange = { draft = draft.copy(seriesName = it) },
+                suggestions = seriesSuggestions,
+                label = R.string.field_series_name,
             )
             TextFieldLine(draft.publisher, { draft = draft.copy(publisher = it) }, R.string.field_publisher)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -4083,7 +4161,7 @@ private fun AddBookSheet(
                 )
             }
             RatingEditor(rating = draft.rating, onRatingChange = { draft = draft.copy(rating = it) })
-            Text(stringResource(R.string.section_classification).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.section_classification).uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.primary)
             val availableSubGenres = subGenreOptionsFor(draft.mainGenre)
             val selectedSubGenre = draft.subGenres.firstOrNull { selected ->
                 availableSubGenres.any { it.equals(selected, ignoreCase = true) }
@@ -4126,11 +4204,11 @@ private fun AddBookSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(stringResource(R.string.field_signed_copy), style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.field_signed_copy), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 Switch(checked = draft.signedCopy, onCheckedChange = { draft = draft.copy(signedCopy = it) })
             }
-            Text(stringResource(R.string.section_ownership).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.section_ownership).uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.primary)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextFieldLine(
                     value = draft.purchaseDate,
                     onValueChange = { draft = draft.copy(purchaseDate = it) },
@@ -4139,6 +4217,27 @@ private fun AddBookSheet(
                     monospace = true,
                     placeholder = R.string.date_format_hint,
                 )
+                IconButton(
+                    onClick = {
+                        val cal = java.util.Calendar.getInstance()
+                        android.app.DatePickerDialog(
+                            context,
+                            { _, y, m, d ->
+                                draft = draft.copy(purchaseDate = String.format(java.util.Locale.US, "%04d-%02d-%02d", y, m + 1, d))
+                            },
+                            cal.get(java.util.Calendar.YEAR),
+                            cal.get(java.util.Calendar.MONTH),
+                            cal.get(java.util.Calendar.DAY_OF_MONTH),
+                        ).show()
+                    },
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.CalendarToday,
+                        contentDescription = stringResource(R.string.action_pick_date),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 TextFieldLine(
                     value = draft.cost,
                     onValueChange = { draft = draft.copy(cost = it) },
@@ -4164,9 +4263,9 @@ private fun AddBookSheet(
                             color = MaterialTheme.colorScheme.onPrimary,
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.action_saving))
+                        Text(stringResource(R.string.action_saving), fontWeight = FontWeight.Bold)
                     } else {
-                        Text(stringResource(R.string.action_save_book))
+                        Text(stringResource(R.string.action_save_book), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -4231,6 +4330,28 @@ private fun AddBookSheet(
             onSelect = { url ->
                 draft = draft.copy(coverUrl = url, coverImagePath = "")
                 showCoverPicker = false
+            },
+        )
+    }
+
+    if (showTitleMatchPicker) {
+        TitleMatchPickerSheet(
+            matches = titleMatches,
+            onDismiss = { showTitleMatchPicker = false },
+            onSelect = { metadata ->
+                showTitleMatchPicker = false
+                draft = draft.copy(
+                    title = metadata.title.ifBlank { draft.title },
+                    subtitle = metadata.subtitle ?: draft.subtitle,
+                    authors = if (metadata.authors.isNotEmpty()) metadata.authors.joinToString(", ") else draft.authors,
+                    publisher = metadata.publisher ?: draft.publisher,
+                    publishedYear = metadata.publishedYear?.toString() ?: draft.publishedYear,
+                    pageCount = metadata.pageCount?.toString() ?: draft.pageCount,
+                    notes = metadata.notes ?: draft.notes,
+                    coverUrl = metadata.coverUrl ?: draft.coverUrl,
+                    isbn = metadata.isbn13 ?: metadata.isbn10 ?: draft.isbn,
+                    tags = if (metadata.tags.isNotEmpty()) metadata.tags.joinToString(", ") else draft.tags,
+                )
             },
         )
     }
@@ -4555,6 +4676,126 @@ private fun CoverPickerSheet(
                 }
             }
             Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TitleMatchPickerSheet(
+    matches: List<com.mj.homelibrary.data.remote.BookMetadata>,
+    onDismiss: () -> Unit,
+    onSelect: (com.mj.homelibrary.data.remote.BookMetadata) -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(stringResource(R.string.autofill_select_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                stringResource(R.string.autofill_subtitle, matches.size),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 460.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(matches) { item ->
+                    Surface(
+                        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card)),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(item) },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (!item.coverUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = item.coverUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .width(44.dp)
+                                        .aspectRatio(0.68f)
+                                        .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_sm))),
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .width(44.dp)
+                                        .aspectRatio(0.68f)
+                                        .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_sm)))
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Book,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = item.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (item.authors.isNotEmpty()) {
+                                    Text(
+                                        text = item.authors.joinToString(", "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                val metaParts = listOfNotNull(
+                                    item.publisher?.take(25),
+                                    item.publishedYear?.toString(),
+                                    item.pageCount?.let { "$it p." },
+                                    item.isbn13 ?: item.isbn10,
+                                )
+                                if (metaParts.isNotEmpty()) {
+                                    Text(
+                                        text = metaParts.joinToString(" · "),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            Icon(
+                                Icons.Outlined.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

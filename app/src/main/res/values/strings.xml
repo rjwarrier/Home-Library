@@ -438,4 +438,18 @@
     <string name="language_ml">Malayalam</string>
     <string name="language_hi">Hindi</string>
     <string name="language_other">Other</string>
+    <string name="action_autofill_title_author">Search web &amp; autofill</string>
+    <string name="autofill_searching">Searching web for book details…</string>
+    <string name="autofill_no_results">No online matches found. You can continue filling details manually.</string>
+    <string name="autofill_select_title">Select matching book</string>
+    <string name="autofill_subtitle">%1$d matches found online</string>
+    <string name="scanner_zoom_1x">1x</string>
+    <string name="scanner_zoom_2x">2x</string>
+    <string name="scanner_enter_isbn_manual">Enter ISBN</string>
+    <string name="scanner_type_isbn_hint">Type or paste 10 or 13-digit ISBN</string>
+    <string name="scanner_scanned_tray_title">Scanned (%1$d)</string>
+    <string name="scanner_remove_scanned">Remove %1$s from queue</string>
+    <string name="action_pick_date">Pick date</string>
+    <string name="isbn_valid_badge">Valid ISBN</string>
+    <string name="isbn_invalid_badge">Invalid ISBN</string>
 </resources>

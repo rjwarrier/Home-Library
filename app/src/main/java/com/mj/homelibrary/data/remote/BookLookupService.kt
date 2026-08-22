@@ -98,6 +98,107 @@ class BookLookupService(private val context: Context) {
             candidates
         }
 
+    suspend fun searchByTitleAndAuthor(title: String, authors: List<String>): Result<List<BookMetadata>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val cleanTitle = title.trim()
+                if (cleanTitle.isBlank()) return@runCatching emptyList()
+                val primaryAuthor = authors.firstOrNull()?.trim().orEmpty()
+
+                val searchGroups = coroutineScope {
+                    val googleSearch = async {
+                        runCatching {
+                            val query = buildString {
+                                append("intitle:").append(cleanTitle)
+                                if (primaryAuthor.isNotBlank()) {
+                                    append("+inauthor:").append(primaryAuthor)
+                                }
+                            }
+                            val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
+                            val json = getJson("https://www.googleapis.com/books/v1/volumes?q=$encoded&maxResults=6")
+                            val items = json?.optJSONArray("items") ?: return@runCatching emptyList<BookMetadata>()
+                            List(items.length()) { index ->
+                                val volumeInfo = items.optJSONObject(index)?.optJSONObject("volumeInfo") ?: return@List null
+                                val itemTitle = volumeInfo.optString("title").takeIf(String::isNotBlank) ?: return@List null
+                                val industryIds = volumeInfo.optJSONArray("industryIdentifiers")
+                                var isbn10: String? = null
+                                var isbn13: String? = null
+                                if (industryIds != null) {
+                                    for (i in 0 until industryIds.length()) {
+                                        val identifier = industryIds.optJSONObject(i) ?: continue
+                                        when (identifier.optString("type")) {
+                                            "ISBN_10" -> isbn10 = identifier.optString("identifier")
+                                            "ISBN_13" -> isbn13 = identifier.optString("identifier")
+                                        }
+                                    }
+                                }
+                                BookMetadata(
+                                    title = itemTitle,
+                                    subtitle = volumeInfo.optString("subtitle").takeIf(String::isNotBlank),
+                                    authors = volumeInfo.optJSONArray("authors")?.let { array ->
+                                        List(array.length()) { idx -> array.optString(idx) }.filter(String::isNotBlank)
+                                    }.orEmpty(),
+                                    tags = volumeInfo.optJSONArray("categories").toStringList(),
+                                    publisher = volumeInfo.optString("publisher").takeIf(String::isNotBlank),
+                                    publishedYear = volumeInfo.optString("publishedDate").toYearOrNull(),
+                                    pageCount = volumeInfo.optInt("pageCount").takeIf { it > 0 },
+                                    coverUrl = volumeInfo.optJSONObject("imageLinks").bestGoogleCoverUrl(),
+                                    languageCode = volumeInfo.optString("language").takeIf(String::isNotBlank) ?: "en",
+                                    isbn10 = isbn10?.normalizedIsbn10OrNull(),
+                                    isbn13 = isbn13?.normalizedIsbn13OrNull(),
+                                    notes = volumeInfo.optString("description").takeIf(String::isNotBlank).toSynopsis(),
+                                )
+                            }.filterNotNull()
+                        }.getOrDefault(emptyList())
+                    }
+
+                    val openLibrarySearch = async {
+                        runCatching {
+                            val queryParams = buildString {
+                                append("title=").append(URLEncoder.encode(cleanTitle, StandardCharsets.UTF_8.name()))
+                                if (primaryAuthor.isNotBlank()) {
+                                    append("&author=").append(URLEncoder.encode(primaryAuthor, StandardCharsets.UTF_8.name()))
+                                }
+                                append("&fields=title,subtitle,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn,language,subject")
+                                append("&limit=6")
+                            }
+                            val json = getJson("https://openlibrary.org/search.json?$queryParams")
+                            val docs = json?.optJSONArray("docs") ?: return@runCatching emptyList<BookMetadata>()
+                            List(docs.length()) { index ->
+                                val doc = docs.optJSONObject(index) ?: return@List null
+                                val docTitle = doc.optString("title").takeIf(String::isNotBlank) ?: return@List null
+                                val coverId = doc.optLong("cover_i").takeIf { it > 0L }
+                                val isbnList = doc.optJSONArray("isbn").toStringList()
+                                val isbn10 = isbnList.firstNotNullOfOrNull { it.normalizedIsbn10OrNull() }
+                                val isbn13 = isbnList.firstNotNullOfOrNull { it.normalizedIsbn13OrNull() }
+                                val lang = doc.optJSONArray("language").toStringList().firstOrNull()?.toAppLanguageCode() ?: "en"
+                                BookMetadata(
+                                    title = docTitle,
+                                    subtitle = doc.optString("subtitle").takeIf(String::isNotBlank),
+                                    authors = doc.optJSONArray("author_name").toStringList(),
+                                    tags = doc.optJSONArray("subject").toStringList().take(MAX_TAGS),
+                                    publisher = doc.optJSONArray("publisher").toStringList().firstOrNull(),
+                                    publishedYear = doc.optInt("first_publish_year").takeIf { it > 0 },
+                                    pageCount = doc.optInt("number_of_pages_median").takeIf { it > 0 },
+                                    coverUrl = coverId?.let { "https://covers.openlibrary.org/b/id/$it-L.jpg" },
+                                    languageCode = lang,
+                                    isbn10 = isbn10,
+                                    isbn13 = isbn13,
+                                )
+                            }.filterNotNull()
+                        }.getOrDefault(emptyList())
+                    }
+
+                    listOf(googleSearch, openLibrarySearch).awaitAll()
+                }
+
+                val combined = (searchGroups[0] + searchGroups[1])
+                    .distinctBy { it.title.lowercase() to it.authors.firstOrNull()?.lowercase() }
+                    .take(8)
+                combined
+            }
+        }
+
     private suspend fun lookupOpenLibrary(isbn: String): BookMetadata? {
         val url = "https://openlibrary.org/isbn/$isbn.json"
         val json = getJson(url) ?: return null

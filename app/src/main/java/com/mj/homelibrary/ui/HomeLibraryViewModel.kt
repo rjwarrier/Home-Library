@@ -438,6 +438,16 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun searchBooksByTitleAndAuthor(title: String, authors: List<String>, onResult: (List<BookMetadata>) -> Unit) {
+        viewModelScope.launch {
+            transient.update { it.copy(lookupInProgress = true) }
+            repository.searchBooksByTitleAndAuthor(title, authors)
+                .onSuccess { onResult(it) }
+                .onFailure { onResult(emptyList()) }
+            transient.update { it.copy(lookupInProgress = false) }
+        }
+    }
+
     fun loanBook(draft: LoanDraft, onSaved: () -> Unit) {
         if (draft.borrowerName.isBlank()) return
         viewModelScope.launch {
