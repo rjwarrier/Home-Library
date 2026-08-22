@@ -463,4 +463,9 @@
     <string name="ocr_use_and_autofill">Use &amp; autofill</string>
     <string name="ocr_capturing">Analyzing cover text…</string>
     <string name="ocr_no_text_detected">Point camera steadily at book cover or title page</string>
+    <string name="ocr_freeze_frame">Freeze</string>
+    <string name="ocr_unfreeze_frame">Resume</string>
+    <string name="ocr_detected_lines_title">Detected text lines</string>
+    <string name="ocr_set_as_title">Title</string>
+    <string name="ocr_set_as_author">Author</string>
 </resources>

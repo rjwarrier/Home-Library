@@ -10,6 +10,7 @@ data class OcrBookDetails(
     val publisher: String? = null,
     val year: Int? = null,
     val rawIsbn: String? = null,
+    val allDetectedLines: List<String> = emptyList(),
 )
 
 data class ParsedOcrLine(
@@ -25,11 +26,23 @@ object CoverOcrParser {
     private val yearRegex = Regex("""\b(18\d{2}|19\d{2}|20[0-2]\d)\b""")
     private val isbnPrefixRegex = Regex("""(?i)ISBN[-:\s]*([0-9Xx-]{10,17})""")
     private val authorPrefixRegex = Regex("""(?i)^(?:by|written\s+by|authored\s+by|author[:\s]+)\s*(.+)""")
+    
+    private val noiseBadges = listOf(
+        Regex("""(?i).*\b(bestseller|best-seller)\b.*"""),
+        Regex("""(?i).*\b(copies\s+sold|million\s+copies)\b.*"""),
+        Regex("""(?i).*\b(winner\s+of|nominee|shortlisted)\b.*"""),
+        Regex("""(?i).*\b(pulitzer|booker|nobel|hugo|nebula)\b.*"""),
+        Regex("""(?i).*\b(major\s+motion\s+picture|stream\s+now|netflix|apple\s+tv|prime\s+video)\b.*"""),
+        Regex("""(?i).*\b(foreword\s+by|introduction\s+by|preface\s+by)\b.*"""),
+        Regex("""(?i).*\b(all\s+rights\s+reserved|copyright|printed\s+in)\b.*"""),
+        Regex("""(?i).*\b(edition|unabridged|abridged|illustrated)\b.*"""),
+    )
+
     private val publisherKeywords = listOf(
         "publisher", "publishers", "publishing", "press", "books", "publications",
         "editions", "house", "media", "dc books", "mathrubhumi", "kottayam", "sahitya",
         "harper", "penguin", "vintage", "scholastic", "oxford", "cambridge", "bloomsbury",
-        "simon", "schuster", "macmillan", "hachette", "routledge", "wiley"
+        "simon", "schuster", "macmillan", "hachette", "routledge", "wiley", "houghton", "mifflin"
     )
 
     fun parse(mlKitText: Text): OcrBookDetails {
@@ -37,7 +50,7 @@ object CoverOcrParser {
 
         for (block in mlKitText.textBlocks) {
             for (line in block.lines) {
-                val cleanText = line.text.trim()
+                val cleanText = sanitizeText(line.text)
                 if (cleanText.length < 2) continue
 
                 val box = line.boundingBox
@@ -73,6 +86,11 @@ object CoverOcrParser {
                     detectedIsbn = candidate
                     break
                 }
+            } else {
+                val direct = line.text.validIsbnOrNull()
+                if (direct != null && detectedIsbn == null) {
+                    detectedIsbn = direct
+                }
             }
         }
 
@@ -95,11 +113,14 @@ object CoverOcrParser {
             val isYearOnly = text.matches(Regex("""^\d{4}$"""))
             val isBarcodeJunk = text.startsWith("|||") || text.matches(Regex("""^[\d\s-]{12,}$"""))
             val isPrice = text.matches(Regex("""(?i)^[₹$€£]?\s*\d+(?:\.\d{2})?\s*(?:rs|inr|usd)?$"""))
-            !isIsbnLine && !isYearOnly && !isBarcodeJunk && !isPrice
+            val isNoise = noiseBadges.any { it.matches(text) }
+            !isIsbnLine && !isYearOnly && !isBarcodeJunk && !isPrice && !isNoise
         }
 
+        val allDetected = lines.map { it.text }.distinct()
+
         if (nonMetaLines.isEmpty()) {
-            return OcrBookDetails(rawIsbn = detectedIsbn, year = detectedYear)
+            return OcrBookDetails(rawIsbn = detectedIsbn, year = detectedYear, allDetectedLines = allDetected)
         }
 
         // 4. Find Publisher line if any keyword matches
@@ -142,15 +163,15 @@ object CoverOcrParser {
             
             // If there's an adjacent line with similar font height right below/above, group it
             val adjacentTitleLines = sortedByProminence
-                .filter { Math.abs(it.top - mostProminent.bottom) < 50 || Math.abs(it.bottom - mostProminent.top) < 50 || it == mostProminent }
-                .filter { it.fontHeight >= mostProminent.fontHeight * 0.65f }
+                .filter { Math.abs(it.top - mostProminent.bottom) < 60 || Math.abs(it.bottom - mostProminent.top) < 60 || it == mostProminent }
+                .filter { it.fontHeight >= mostProminent.fontHeight * 0.60f }
                 .sortedBy { it.top }
 
             title = adjacentTitleLines.joinToString(" ") { it.text }
 
             if (detectedAuthors.isEmpty() && sortedByProminence.size > adjacentTitleLines.size) {
                 val nextCandidate = sortedByProminence.firstOrNull { it !in adjacentTitleLines }
-                if (nextCandidate != null && nextCandidate.text.length in 3..50) {
+                if (nextCandidate != null && nextCandidate.text.length in 3..60 && !nextCandidate.text.contains(title, ignoreCase = true)) {
                     detectedAuthors.add(nextCandidate.text)
                 }
             }
@@ -164,6 +185,14 @@ object CoverOcrParser {
             publisher = detectedPublisher,
             year = detectedYear,
             rawIsbn = detectedIsbn,
+            allDetectedLines = allDetected,
         )
+    }
+
+    private fun sanitizeText(input: String): String {
+        return input.trim()
+            .trim('"', '“', '”', '‘', '’', '\'', '-', '_', '~', '|', '*', '•', ':', ';', ',', '.')
+            .replace(Regex("""\s+"""), " ")
+            .trim()
     }
 }

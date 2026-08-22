@@ -49,7 +49,9 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.FlashlightOn
 import androidx.compose.material.icons.outlined.Keyboard
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -142,6 +144,7 @@ fun BarcodeScannerSheet(
     var zoomRatio by remember { mutableFloatStateOf(1f) }
     var showManualIsbnDialog by remember { mutableStateOf(false) }
     var scanSuccessTrigger by remember { mutableStateOf(false) }
+    var isOcrFrozen by remember { mutableStateOf(false) }
     var latestOcrResult by remember { mutableStateOf<OcrBookDetails?>(null) }
     val scannedQueue = remember { mutableStateListOf<String>() }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
@@ -192,7 +195,10 @@ fun BarcodeScannerSheet(
                             ScannerModeTab(
                                 label = stringResource(R.string.scanner_mode_barcode),
                                 selected = scannerMode == ScannerMode.BARCODE,
-                                onClick = { scannerMode = ScannerMode.BARCODE },
+                                onClick = {
+                                    scannerMode = ScannerMode.BARCODE
+                                    isOcrFrozen = false
+                                },
                             )
                             ScannerModeTab(
                                 label = stringResource(R.string.scanner_mode_ocr),
@@ -218,29 +224,71 @@ fun BarcodeScannerSheet(
                 }
 
                 if (granted) {
-                    ScannerViewfinder(
-                        scannerMode = scannerMode,
-                        torchOn = torchOn,
-                        zoomRatio = zoomRatio,
-                        onZoomChange = { zoomRatio = it },
-                        scanSuccess = scanSuccessTrigger,
-                        onBarcode = { isbn ->
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            scanSuccessTrigger = true
-                            if (bulkScan) {
-                                if (isbn !in scannedQueue) scannedQueue.add(0, isbn)
-                            } else {
-                                onBarcode(isbn)
-                            }
-                        },
-                        onOcrDetected = { ocrDetails ->
-                            latestOcrResult = ocrDetails
-                        },
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)
-                            .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_hero))),
-                    )
+                            .weight(1f),
+                    ) {
+                        ScannerViewfinder(
+                            scannerMode = scannerMode,
+                            torchOn = torchOn,
+                            zoomRatio = zoomRatio,
+                            onZoomChange = { zoomRatio = it },
+                            scanSuccess = scanSuccessTrigger,
+                            isOcrFrozen = isOcrFrozen,
+                            onBarcode = { isbn ->
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                scanSuccessTrigger = true
+                                if (bulkScan) {
+                                    if (isbn !in scannedQueue) scannedQueue.add(0, isbn)
+                                } else {
+                                    onBarcode(isbn)
+                                }
+                            },
+                            onOcrDetected = { ocrDetails ->
+                                if (!isOcrFrozen) {
+                                    latestOcrResult = ocrDetails
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_hero))),
+                        )
+
+                        // Freeze / Shutter button for Cover OCR mode
+                        if (scannerMode == ScannerMode.COVER_OCR) {
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isOcrFrozen) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.90f),
+                                contentColor = if (isOcrFrozen) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                shadowElevation = 6.dp,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 16.dp)
+                                    .clickable {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        isOcrFrozen = !isOcrFrozen
+                                    },
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Icon(
+                                        if (isOcrFrozen) Icons.Outlined.PlayArrow else Icons.Outlined.Stop,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Text(
+                                        stringResource(if (isOcrFrozen) R.string.ocr_unfreeze_frame else R.string.ocr_freeze_frame),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 } else {
                     PermissionPanel(
                         onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) },
@@ -384,6 +432,52 @@ fun BarcodeScannerSheet(
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.primary,
                                         )
+                                    }
+                                }
+
+                                // Interactive Text Chips if frozen or available
+                                if (ocr.allDetectedLines.size > 1) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            stringResource(R.string.ocr_detected_lines_title),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        ) {
+                                            ocr.allDetectedLines.forEach { line ->
+                                                val isTitle = line.equals(ocr.title, ignoreCase = true)
+                                                val isAuthor = ocr.authors.any { it.equals(line, ignoreCase = true) }
+                                                FilterChip(
+                                                    selected = isTitle || isAuthor,
+                                                    onClick = {
+                                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        latestOcrResult = if (!isTitle) {
+                                                            ocr.copy(title = line)
+                                                        } else {
+                                                            ocr.copy(authors = listOf(line))
+                                                        }
+                                                    },
+                                                    label = {
+                                                        Text(
+                                                            line,
+                                                            maxLines = 1,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = if (isTitle || isAuthor) FontWeight.Bold else FontWeight.Normal,
+                                                        )
+                                                    },
+                                                    colors = FilterChipDefaults.filterChipColors(
+                                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    ),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                )
+                                            }
+                                        }
                                     }
                                 }
 
@@ -627,6 +721,7 @@ private fun ScannerViewfinder(
     zoomRatio: Float,
     onZoomChange: (Float) -> Unit,
     scanSuccess: Boolean,
+    isOcrFrozen: Boolean,
     onBarcode: (String) -> Unit,
     onOcrDetected: (OcrBookDetails) -> Unit,
     modifier: Modifier = Modifier,
@@ -642,6 +737,7 @@ private fun ScannerViewfinder(
             scannerMode = scannerMode,
             torchOn = torchOn,
             zoomRatio = zoomRatio,
+            isOcrFrozen = isOcrFrozen,
             onBarcode = onBarcode,
             onOcrDetected = onOcrDetected,
             onTapFocus = { offset ->
@@ -810,6 +906,7 @@ private fun CameraScannerPreview(
     scannerMode: ScannerMode,
     torchOn: Boolean,
     zoomRatio: Float,
+    isOcrFrozen: Boolean,
     onBarcode: (String) -> Unit,
     onOcrDetected: (OcrBookDetails) -> Unit,
     onTapFocus: (Offset) -> Unit,
@@ -821,6 +918,7 @@ private fun CameraScannerPreview(
     val currentOnBarcode by rememberUpdatedState(onBarcode)
     val currentOnOcrDetected by rememberUpdatedState(onOcrDetected)
     val currentMode by rememberUpdatedState(scannerMode)
+    val currentFrozen by rememberUpdatedState(isOcrFrozen)
     val scanGate = remember { ScanGate() }
     val resources = remember { CameraBarcodeResources() }
     val disposed = remember { AtomicBoolean(false) }
@@ -913,11 +1011,15 @@ private fun CameraScannerPreview(
                                                 onBarcode = currentOnBarcode,
                                             )
                                         } else {
-                                            processOcrImage(
-                                                imageProxy = imageProxy,
-                                                recognizer = textRecognizer,
-                                                onOcrDetected = currentOnOcrDetected,
-                                            )
+                                            if (!currentFrozen) {
+                                                processOcrImage(
+                                                    imageProxy = imageProxy,
+                                                    recognizer = textRecognizer,
+                                                    onOcrDetected = currentOnOcrDetected,
+                                                )
+                                            } else {
+                                                imageProxy.close()
+                                            }
                                         }
                                     }
                                 }
@@ -965,16 +1067,20 @@ private fun processBarcodeImage(
         }
 }
 
+private var lastOcrExecutionTimestamp = 0L
+
 private fun processOcrImage(
     imageProxy: ImageProxy,
     recognizer: com.google.mlkit.vision.text.TextRecognizer,
     onOcrDetected: (OcrBookDetails) -> Unit,
 ) {
     val mediaImage = imageProxy.image
-    if (mediaImage == null) {
+    val now = System.currentTimeMillis()
+    if (mediaImage == null || now - lastOcrExecutionTimestamp < 300L) {
         imageProxy.close()
         return
     }
+    lastOcrExecutionTimestamp = now
     val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
     recognizer.process(image)
         .addOnSuccessListener { visionText ->
