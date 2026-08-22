@@ -224,6 +224,9 @@ import com.mj.homelibrary.data.entity.LocationEntity
 import com.mj.homelibrary.data.validIsbnOrNull
 import com.mj.homelibrary.ui.theme.ExpressiveMotion
 import com.mj.homelibrary.ui.theme.expressiveClickable
+import com.mj.homelibrary.ui.theme.expressivePressScale
+import com.mj.homelibrary.ui.theme.m3DialogEnterTransition
+import com.mj.homelibrary.ui.theme.m3DialogExitTransition
 import com.mj.homelibrary.ui.theme.m3TabTransition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -375,8 +378,8 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
         floatingActionButton = {
             AnimatedVisibility(
                 visible = selectedTab in listOf(HomeTab.Library, HomeTab.Shelves, HomeTab.Loans),
-                enter = scaleIn() + fadeIn(),
-                exit = scaleOut() + fadeOut(),
+                enter = m3DialogEnterTransition(),
+                exit = m3DialogExitTransition(),
             ) {
                 when (selectedTab) {
                     HomeTab.Library -> GranthapuraFabMenu(
@@ -1386,9 +1389,9 @@ private fun rememberDismissKeyboard(): () -> Unit {
 }
 
 @Composable
-private fun rememberPressScale(interactionSource: InteractionSource): androidx.compose.runtime.State<Float> {
+private fun rememberPressScale(interactionSource: InteractionSource): Float {
     val isPressed by interactionSource.collectIsPressedAsState()
-    return animateFloatAsState(if (isPressed) 0.94f else 1f, animationSpec = ExpressiveMotion.BouncyPressSpring, label = "pressScale")
+    return expressivePressScale(isPressed, pressedScale = 0.94f)
 }
 
 @Composable
@@ -1411,6 +1414,7 @@ private fun ClearFiltersChip(onClick: () -> Unit) {
 private fun MorphChip(selected: Boolean, label: String, trailing: ImageVector? = null, onClick: () -> Unit) {
     val cornerRadius by animateDpAsState(
         if (selected) dimensionResource(R.dimen.corner_control) else 999.dp,
+        animationSpec = ExpressiveMotion.MorphDpSpring,
         label = "chipMorph",
     )
     FilterChip(
@@ -1466,7 +1470,7 @@ private fun BookGridCard(
 ) {
     val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
-    val pressScale by rememberPressScale(interactionSource)
+    val pressScale = rememberPressScale(interactionSource)
     Column(
         modifier = modifier
             .scale(pressScale)
@@ -1901,15 +1905,14 @@ private fun ShelfRow(
         }
         Box(modifier = Modifier.height(74.dp).fillMaxWidth()) {
             HorizontalDivider(modifier = Modifier.align(Alignment.BottomCenter), color = MaterialTheme.colorScheme.outlineVariant, thickness = 2.dp)
-            Row(
+            LazyRow(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
+                    .fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                books.forEach { item ->
+                items(books, key = { it.book.id }) { item ->
                     Spine(item = item, onClick = { onBookClick(item) })
                 }
             }
@@ -2185,10 +2188,22 @@ private fun StatsScreen(
     }
 }
 
+/**
+ * True once this call site has been composed for at least one frame. Each Stats card is a
+ * separate `item {}` in a LazyColumn, so cards below the fold should only reveal when they're
+ * first scrolled into view, not all at once on tab entry — this is called per-card rather than
+ * hoisted to a single shared flag.
+ */
+@Composable
+private fun rememberEntryAnimationTrigger(): Boolean {
+    var triggered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { triggered = true }
+    return triggered
+}
+
 @Composable
 private fun AnalyticsOverviewGrid(stats: LibraryStats) {
-    var animateIn by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { animateIn = true }
+    val animateIn = rememberEntryAnimationTrigger()
     val animatedTotal by animateIntAsState(
         if (animateIn) stats.totalBooks else 0,
         animationSpec = tween(750, easing = ExpressiveMotion.EmphasizedDecelerate),
@@ -2400,11 +2415,10 @@ private fun PublicationDecadesCard(decades: Map<String, Int>) {
 private fun LanguageBarCard(languages: Map<String, Int>) {
     ChartCard(title = R.string.stats_languages) {
         val total = languages.values.sum().coerceAtLeast(1)
-        var animateIn by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { animateIn = true }
+        val animateIn = rememberEntryAnimationTrigger()
         val growth by animateFloatAsState(
             if (animateIn) 1f else 0f,
-            animationSpec = spring(dampingRatio = 0.7f, stiffness = 300f),
+            animationSpec = ExpressiveMotion.SoftSpring,
             label = "languageBarGrowth"
         )
         Row(
@@ -2439,8 +2453,7 @@ private fun GenreBarsCard(genres: Map<String, Int>, modifier: Modifier = Modifie
     ChartCard(title = R.string.stats_genres, modifier = modifier) {
         val entries = genres.entries.sortedByDescending { it.value }.take(4)
         val maxValue = entries.maxOfOrNull { it.value }?.coerceAtLeast(1) ?: 1
-        var animateIn by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { animateIn = true }
+        val animateIn = rememberEntryAnimationTrigger()
         Row(
             modifier = Modifier.fillMaxWidth().height(126.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -2472,11 +2485,10 @@ private fun GenreBarsCard(genres: Map<String, Int>, modifier: Modifier = Modifie
 private fun ReadingRingCard(read: Int, goal: Int, modifier: Modifier = Modifier) {
     ChartCard(title = R.string.stats_read_this_year, modifier = modifier, titleArg = Year.now().value) {
         val progress = (read / goal.toFloat()).coerceIn(0f, 1f)
-        var animateIn by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { animateIn = true }
+        val animateIn = rememberEntryAnimationTrigger()
         val animatedProgress by animateFloatAsState(
             if (animateIn) progress else 0f,
-            animationSpec = spring(dampingRatio = 0.75f, stiffness = 300f),
+            animationSpec = ExpressiveMotion.SoftSpring,
             label = "readingRingProgress"
         )
         val trackColor = MaterialTheme.colorScheme.surfaceVariant
@@ -2980,8 +2992,8 @@ private fun GranthapuraFabMenu(
     Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         AnimatedVisibility(
             visible = expanded,
-            enter = fadeIn(spring()) + scaleIn(),
-            exit = fadeOut() + scaleOut(),
+            enter = m3DialogEnterTransition(),
+            exit = m3DialogExitTransition(),
         ) {
             Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 StaggeredFabMenuItem(index = 0, expanded = expanded) {
@@ -2993,15 +3005,20 @@ private fun GranthapuraFabMenu(
             }
         }
         val fabInteractionSource = remember { MutableInteractionSource() }
-        val fabPressScale by rememberPressScale(fabInteractionSource)
+        val fabPressScale = rememberPressScale(fabInteractionSource)
+        val fabCornerRadius by animateDpAsState(
+            if (expanded) dimensionResource(R.dimen.corner_2xl) else dimensionResource(R.dimen.corner_prominent),
+            animationSpec = ExpressiveMotion.MorphDpSpring,
+            label = "fabCornerMorph",
+        )
         FloatingActionButton(
             onClick = onToggle,
             interactionSource = fabInteractionSource,
             modifier = Modifier
                 .size(dimensionResource(R.dimen.fab_size))
                 .scale(fabPressScale)
-                .shadow(10.dp, RoundedCornerShape(if (expanded) dimensionResource(R.dimen.corner_2xl) else dimensionResource(R.dimen.corner_prominent))),
-            shape = RoundedCornerShape(if (expanded) dimensionResource(R.dimen.corner_2xl) else dimensionResource(R.dimen.corner_prominent)),
+                .shadow(10.dp, RoundedCornerShape(fabCornerRadius)),
+            shape = RoundedCornerShape(fabCornerRadius),
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ) {
@@ -3027,8 +3044,8 @@ private fun LoansFabMenu(
     Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         AnimatedVisibility(
             visible = expanded,
-            enter = fadeIn(spring()) + scaleIn(),
-            exit = fadeOut() + scaleOut(),
+            enter = m3DialogEnterTransition(),
+            exit = m3DialogExitTransition(),
         ) {
             Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 StaggeredFabMenuItem(index = 0, expanded = expanded) {
@@ -3040,15 +3057,20 @@ private fun LoansFabMenu(
             }
         }
         val fabInteractionSource = remember { MutableInteractionSource() }
-        val fabPressScale by rememberPressScale(fabInteractionSource)
+        val fabPressScale = rememberPressScale(fabInteractionSource)
+        val fabCornerRadius by animateDpAsState(
+            if (expanded) dimensionResource(R.dimen.corner_2xl) else dimensionResource(R.dimen.corner_prominent),
+            animationSpec = ExpressiveMotion.MorphDpSpring,
+            label = "fabCornerMorph",
+        )
         FloatingActionButton(
             onClick = onToggle,
             interactionSource = fabInteractionSource,
             modifier = Modifier
                 .size(dimensionResource(R.dimen.fab_size))
                 .scale(fabPressScale)
-                .shadow(10.dp, RoundedCornerShape(if (expanded) dimensionResource(R.dimen.corner_2xl) else dimensionResource(R.dimen.corner_prominent))),
-            shape = RoundedCornerShape(if (expanded) dimensionResource(R.dimen.corner_2xl) else dimensionResource(R.dimen.corner_prominent)),
+                .shadow(10.dp, RoundedCornerShape(fabCornerRadius)),
+            shape = RoundedCornerShape(fabCornerRadius),
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ) {
@@ -3060,7 +3082,7 @@ private fun LoansFabMenu(
 @Composable
 private fun ScreenFab(icon: ImageVector, label: String, onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
-    val pressScale by rememberPressScale(interactionSource)
+    val pressScale = rememberPressScale(interactionSource)
     FloatingActionButton(
         onClick = onClick,
         interactionSource = interactionSource,
@@ -3839,7 +3861,7 @@ private fun CoverPickerSheet(
                 ) {
                     items(candidates, key = { it }) { url ->
                         val interactionSource = remember { MutableInteractionSource() }
-                        val pressScale by rememberPressScale(interactionSource)
+                        val pressScale = rememberPressScale(interactionSource)
                         AsyncImage(
                             model = url,
                             contentDescription = stringResource(R.string.content_description_book_cover),
