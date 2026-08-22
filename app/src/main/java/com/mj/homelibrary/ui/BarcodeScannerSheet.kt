@@ -6,13 +6,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -37,12 +37,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.FlashlightOn
@@ -84,24 +86,30 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.mj.homelibrary.R
+import com.mj.homelibrary.data.remote.CoverOcrParser
+import com.mj.homelibrary.data.remote.OcrBookDetails
 import com.mj.homelibrary.data.validIsbnOrNull
 import com.mj.homelibrary.ui.theme.ExpressiveMotion
 import kotlinx.coroutines.delay
@@ -109,11 +117,17 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
+enum class ScannerMode {
+    BARCODE,
+    COVER_OCR,
+}
+
 @Composable
 fun BarcodeScannerSheet(
     onBarcode: (String) -> Unit,
     onDismiss: () -> Unit,
     onBulkScanned: (List<String>) -> Unit = { it.firstOrNull()?.let(onBarcode) },
+    onOcrResult: (OcrBookDetails) -> Unit = {},
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -122,11 +136,13 @@ fun BarcodeScannerSheet(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
         )
     }
+    var scannerMode by remember { mutableStateOf(ScannerMode.BARCODE) }
     var bulkScan by remember { mutableStateOf(false) }
     var torchOn by remember { mutableStateOf(false) }
     var zoomRatio by remember { mutableFloatStateOf(1f) }
     var showManualIsbnDialog by remember { mutableStateOf(false) }
     var scanSuccessTrigger by remember { mutableStateOf(false) }
+    var latestOcrResult by remember { mutableStateOf<OcrBookDetails?>(null) }
     val scannedQueue = remember { mutableStateListOf<String>() }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         granted = isGranted
@@ -149,8 +165,9 @@ fun BarcodeScannerSheet(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 20.dp, vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                // Top Action Bar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -161,11 +178,30 @@ fun BarcodeScannerSheet(
                         onClick = onDismiss,
                         contentDescription = stringResource(R.string.content_description_close),
                     )
-                    Text(
-                        stringResource(R.string.action_scan_isbn),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
+
+                    // Mode Toggle: Barcode vs Cover OCR
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.height(40.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            ScannerModeTab(
+                                label = stringResource(R.string.scanner_mode_barcode),
+                                selected = scannerMode == ScannerMode.BARCODE,
+                                onClick = { scannerMode = ScannerMode.BARCODE },
+                            )
+                            ScannerModeTab(
+                                label = stringResource(R.string.scanner_mode_ocr),
+                                selected = scannerMode == ScannerMode.COVER_OCR,
+                                onClick = { scannerMode = ScannerMode.COVER_OCR },
+                            )
+                        }
+                    }
+
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ScannerCircleButton(
                             icon = Icons.Outlined.Keyboard,
@@ -183,6 +219,7 @@ fun BarcodeScannerSheet(
 
                 if (granted) {
                     ScannerViewfinder(
+                        scannerMode = scannerMode,
                         torchOn = torchOn,
                         zoomRatio = zoomRatio,
                         onZoomChange = { zoomRatio = it },
@@ -195,6 +232,9 @@ fun BarcodeScannerSheet(
                             } else {
                                 onBarcode(isbn)
                             }
+                        },
+                        onOcrDetected = { ocrDetails ->
+                            latestOcrResult = ocrDetails
                         },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -217,71 +257,160 @@ fun BarcodeScannerSheet(
                     }
                 }
 
-                if (bulkScan && scannedQueue.isNotEmpty()) {
-                    ScannedTray(
-                        items = scannedQueue,
-                        onRemove = { scannedQueue.remove(it) },
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_lg)))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                            RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
-                        )
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Switch(checked = bulkScan, onCheckedChange = { bulkScan = it })
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            stringResource(R.string.bulk_scan),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            stringResource(R.string.scanner_instruction_body),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (scannerMode == ScannerMode.BARCODE) {
+                    if (bulkScan && scannedQueue.isNotEmpty()) {
+                        ScannedTray(
+                            items = scannedQueue,
+                            onRemove = { scannedQueue.remove(it) },
                         )
                     }
-                    if (bulkScan) {
-                        Text(
-                            stringResource(R.string.bulk_scan_count, scannedQueue.size),
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
 
-                Button(
-                    onClick = {
-                        if (bulkScan && scannedQueue.isNotEmpty()) {
-                            onBulkScanned(scannedQueue.toList())
-                        } else {
-                            onDismiss()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_lg)))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
+                            )
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Switch(checked = bulkScan, onCheckedChange = { bulkScan = it })
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                stringResource(R.string.bulk_scan),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                stringResource(R.string.scanner_instruction_body),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
-                ) {
-                    Text(
-                        if (bulkScan && scannedQueue.isNotEmpty()) {
-                            stringResource(R.string.review_books, scannedQueue.size)
-                        } else {
-                            stringResource(R.string.action_cancel)
+                        if (bulkScan) {
+                            Text(
+                                stringResource(R.string.bulk_scan_count, scannedQueue.size),
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (bulkScan && scannedQueue.isNotEmpty()) {
+                                onBulkScanned(scannedQueue.toList())
+                            } else {
+                                onDismiss()
+                            }
                         },
-                        fontWeight = FontWeight.Bold,
-                    )
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
+                    ) {
+                        Text(
+                            if (bulkScan && scannedQueue.isNotEmpty()) {
+                                stringResource(R.string.review_books, scannedQueue.size)
+                            } else {
+                                stringResource(R.string.action_cancel)
+                            },
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                } else {
+                    // COVER OCR MODE CARD
+                    val ocr = latestOcrResult
+                    Surface(
+                        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    stringResource(R.string.ocr_detected_badge).uppercase(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    stringResource(R.string.ocr_scan_hint),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+
+                            if (ocr != null && ocr.title.isNotBlank()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(
+                                        text = ocr.title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (ocr.authors.isNotEmpty()) {
+                                        Text(
+                                            text = ocr.authors.joinToString(", "),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    val metaDetails = listOfNotNull(
+                                        ocr.publisher,
+                                        ocr.year?.toString(),
+                                        ocr.rawIsbn?.let { "ISBN: $it" },
+                                    )
+                                    if (metaDetails.isNotEmpty()) {
+                                        Text(
+                                            text = metaDetails.joinToString(" · "),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
+
+                                Button(
+                                    onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onOcrResult(ocr)
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
+                                ) {
+                                    Icon(Icons.Outlined.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(stringResource(R.string.ocr_use_and_autofill), fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Text(
+                                    stringResource(R.string.ocr_no_text_detected),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -298,6 +427,29 @@ fun BarcodeScannerSheet(
                     onBarcode(validIsbn)
                 }
             },
+        )
+    }
+}
+
+@Composable
+private fun ScannerModeTab(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -470,11 +622,13 @@ private fun PermissionPanel(
 
 @Composable
 private fun ScannerViewfinder(
+    scannerMode: ScannerMode,
     torchOn: Boolean,
     zoomRatio: Float,
     onZoomChange: (Float) -> Unit,
     scanSuccess: Boolean,
     onBarcode: (String) -> Unit,
+    onOcrDetected: (OcrBookDetails) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var tapOffset by remember { mutableStateOf<Offset?>(null) }
@@ -484,10 +638,12 @@ private fun ScannerViewfinder(
         modifier = modifier.background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        CameraBarcodePreview(
+        CameraScannerPreview(
+            scannerMode = scannerMode,
             torchOn = torchOn,
             zoomRatio = zoomRatio,
             onBarcode = onBarcode,
+            onOcrDetected = onOcrDetected,
             onTapFocus = { offset ->
                 tapOffset = offset
                 coroutineScope.launch {
@@ -499,6 +655,7 @@ private fun ScannerViewfinder(
         )
 
         ScannerReticle(
+            isOcrMode = scannerMode == ScannerMode.COVER_OCR,
             success = scanSuccess,
             modifier = Modifier
                 .fillMaxSize()
@@ -578,7 +735,7 @@ private fun FocusRing(offset: Offset, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ScannerReticle(success: Boolean, modifier: Modifier = Modifier) {
+private fun ScannerReticle(isOcrMode: Boolean, success: Boolean, modifier: Modifier = Modifier) {
     val accent = if (success) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
     val transition = rememberInfiniteTransition(label = "scanner")
     val sweep by transition.animateFloat(
@@ -591,12 +748,13 @@ private fun ScannerReticle(success: Boolean, modifier: Modifier = Modifier) {
         label = "scannerSweep",
     )
     Canvas(modifier = modifier) {
+        val cornerRadius = if (isOcrMode) 24.dp.toPx() else 16.dp.toPx()
         drawRoundRect(
-            color = accent.copy(alpha = if (success) 0.8f else 0.35f),
+            color = accent.copy(alpha = if (success) 0.85f else if (isOcrMode) 0.5f else 0.35f),
             style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (success) 3.5.dp.toPx() else 2.dp.toPx()),
-            cornerRadius = CornerRadius(16.dp.toPx()),
+            cornerRadius = CornerRadius(cornerRadius),
         )
-        val corner = 34.dp.toPx()
+        val corner = if (isOcrMode) 44.dp.toPx() else 34.dp.toPx()
         val stroke = if (success) 4.5.dp.toPx() else 3.5.dp.toPx()
         val w = size.width
         val h = size.height
@@ -648,10 +806,12 @@ private class CameraBarcodeResources {
 }
 
 @Composable
-private fun CameraBarcodePreview(
+private fun CameraScannerPreview(
+    scannerMode: ScannerMode,
     torchOn: Boolean,
     zoomRatio: Float,
     onBarcode: (String) -> Unit,
+    onOcrDetected: (OcrBookDetails) -> Unit,
     onTapFocus: (Offset) -> Unit,
     onZoomChange: (Float) -> Unit,
 ) {
@@ -659,11 +819,14 @@ private fun CameraBarcodePreview(
     var camera by remember { mutableStateOf<Camera?>(null) }
     var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
     val currentOnBarcode by rememberUpdatedState(onBarcode)
+    val currentOnOcrDetected by rememberUpdatedState(onOcrDetected)
+    val currentMode by rememberUpdatedState(scannerMode)
     val scanGate = remember { ScanGate() }
     val resources = remember { CameraBarcodeResources() }
     val disposed = remember { AtomicBoolean(false) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
-    val scanner = remember {
+
+    val barcodeScanner = remember {
         val options = BarcodeScannerOptions.Builder()
             .setBarcodeFormats(
                 Barcode.FORMAT_EAN_13,
@@ -678,11 +841,16 @@ private fun CameraBarcodePreview(
         BarcodeScanning.getClient(options)
     }
 
+    val textRecognizer = remember {
+        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             disposed.set(true)
             resources.release()
-            scanner.close()
+            barcodeScanner.close()
+            textRecognizer.close()
             analysisExecutor.shutdown()
         }
     }
@@ -737,12 +905,20 @@ private fun CameraBarcodePreview(
                                 .build()
                                 .also { imageAnalysis ->
                                     imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
-                                        processBarcodeImage(
-                                            imageProxy = imageProxy,
-                                            scanner = scanner,
-                                            canHandle = scanGate::canHandle,
-                                            onBarcode = currentOnBarcode,
-                                        )
+                                        if (currentMode == ScannerMode.BARCODE) {
+                                            processBarcodeImage(
+                                                imageProxy = imageProxy,
+                                                scanner = barcodeScanner,
+                                                canHandle = scanGate::canHandle,
+                                                onBarcode = currentOnBarcode,
+                                            )
+                                        } else {
+                                            processOcrImage(
+                                                imageProxy = imageProxy,
+                                                recognizer = textRecognizer,
+                                                onOcrDetected = currentOnOcrDetected,
+                                            )
+                                        }
                                     }
                                 }
 
@@ -765,7 +941,6 @@ private fun CameraBarcodePreview(
     }
 }
 
-@OptIn(ExperimentalGetImage::class)
 private fun processBarcodeImage(
     imageProxy: ImageProxy,
     scanner: com.google.mlkit.vision.barcode.BarcodeScanner,
@@ -783,6 +958,29 @@ private fun processBarcodeImage(
             val rawValue = barcodes.firstNotNullOfOrNull { it.rawValue?.validIsbnOrNull() }
             if (rawValue != null && canHandle(rawValue)) {
                 onBarcode(rawValue)
+            }
+        }
+        .addOnCompleteListener {
+            imageProxy.close()
+        }
+}
+
+private fun processOcrImage(
+    imageProxy: ImageProxy,
+    recognizer: com.google.mlkit.vision.text.TextRecognizer,
+    onOcrDetected: (OcrBookDetails) -> Unit,
+) {
+    val mediaImage = imageProxy.image
+    if (mediaImage == null) {
+        imageProxy.close()
+        return
+    }
+    val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+    recognizer.process(image)
+        .addOnSuccessListener { visionText ->
+            val parsed = CoverOcrParser.parse(visionText)
+            if (parsed.title.isNotBlank() || parsed.authors.isNotEmpty()) {
+                onOcrDetected(parsed)
             }
         }
         .addOnCompleteListener {

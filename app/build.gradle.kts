@@ -77,6 +77,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.coil.compose)
     implementation(libs.mlkit.barcode.scanning)
+    implementation(libs.mlkit.text.recognition)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)

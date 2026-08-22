@@ -452,4 +452,15 @@
     <string name="action_pick_date">Pick date</string>
     <string name="isbn_valid_badge">Valid ISBN</string>
     <string name="isbn_invalid_badge">Invalid ISBN</string>
+    <string name="scanner_mode_barcode">Barcode</string>
+    <string name="scanner_mode_ocr">Cover OCR</string>
+    <string name="ocr_scan_hint">Align book cover or title page</string>
+    <string name="ocr_detected_title">Title</string>
+    <string name="ocr_detected_author">Author</string>
+    <string name="ocr_detected_publisher">Publisher</string>
+    <string name="ocr_detected_year">Year</string>
+    <string name="ocr_detected_badge">Cover OCR</string>
+    <string name="ocr_use_and_autofill">Use &amp; autofill</string>
+    <string name="ocr_capturing">Analyzing cover text…</string>
+    <string name="ocr_no_text_detected">Point camera steadily at book cover or title page</string>
 </resources>

@@ -560,6 +560,8 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
         }
     }
 
+    var ocrDraftInitial by remember { mutableStateOf<BookDraft?>(null) }
+
     if (showScanner) {
         BarcodeScannerSheet(
             onBarcode = { isbn ->
@@ -573,6 +575,21 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                 bulkIndex = 0
                 showScanner = false
                 openBookForIsbn(isbns.first())
+            },
+            onOcrResult = { ocr ->
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                showScanner = false
+                manualEntry = true
+                scannedIsbn = ocr.rawIsbn.orEmpty()
+                ocrDraftInitial = BookDraft(
+                    title = ocr.title,
+                    authors = ocr.authors.joinToString(", "),
+                    publisher = ocr.publisher.orEmpty(),
+                    publishedYear = ocr.year?.toString().orEmpty(),
+                    isbn = ocr.rawIsbn.orEmpty(),
+                    languageCode = LanguageCode.English.code,
+                )
+                showAddBook = true
             },
             onDismiss = { showScanner = false },
         )
@@ -596,7 +613,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
         AddBookSheet(
             manualEntry = manualEntry,
             initialIsbn = scannedIsbn,
-            initialDraft = null,
+            initialDraft = ocrDraftInitial,
             autoLookup = true,
             fillOnlyEmpty = false,
             authorSuggestions = authorSuggestions,
@@ -609,13 +626,13 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             lookupInProgress = state.transient.lookupInProgress,
             savingInProgress = state.transient.savingBookInProgress,
             bulkProgress = bulkProgress,
-            onDismiss = { showAddBook = false; advanceBulkQueue() },
-            onSkip = { showAddBook = false; advanceBulkQueue() },
+            onDismiss = { showAddBook = false; ocrDraftInitial = null; advanceBulkQueue() },
+            onSkip = { showAddBook = false; ocrDraftInitial = null; advanceBulkQueue() },
             onLookup = viewModel::lookupIsbn,
             onSilentLookup = viewModel::lookupIsbnSilently,
             onFindCoverCandidates = viewModel::findCoverCandidates,
             onSearchByTitleAndAuthor = viewModel::searchBooksByTitleAndAuthor,
-            onSave = { draft -> viewModel.addBook(draft) { showAddBook = false; advanceBulkQueue() } },
+            onSave = { draft -> viewModel.addBook(draft) { showAddBook = false; ocrDraftInitial = null; advanceBulkQueue() } },
         )
     }
 
@@ -4361,6 +4378,17 @@ private fun AddBookSheet(
             onBarcode = {
                 draft = draft.copy(isbn = it)
                 lookupIfValid(it)
+                showScanner = false
+            },
+            onOcrResult = { ocr ->
+                draft = draft.copy(
+                    title = ocr.title.ifBlank { draft.title },
+                    authors = if (ocr.authors.isNotEmpty()) ocr.authors.joinToString(", ") else draft.authors,
+                    publisher = ocr.publisher ?: draft.publisher,
+                    publishedYear = ocr.year?.toString() ?: draft.publishedYear,
+                    isbn = ocr.rawIsbn ?: draft.isbn,
+                )
+                showScanner = false
             },
             onDismiss = { showScanner = false },
         )
