@@ -1,6 +1,7 @@
 package com.mj.homelibrary.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -112,6 +113,7 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.mj.homelibrary.R
 import com.mj.homelibrary.data.remote.CoverOcrParser
 import com.mj.homelibrary.data.remote.OcrBookDetails
+import com.mj.homelibrary.data.remote.OcrLanguageManager
 import com.mj.homelibrary.data.validIsbnOrNull
 import com.mj.homelibrary.ui.theme.ExpressiveMotion
 import kotlinx.coroutines.delay
@@ -139,6 +141,8 @@ fun BarcodeScannerSheet(
         )
     }
     var scannerMode by remember { mutableStateOf(ScannerMode.BARCODE) }
+    var ocrLanguageCode by remember { mutableStateOf("latin") }
+    val installedOcrLangs = remember { OcrLanguageManager.getInstalledLanguages(context) }
     var bulkScan by remember { mutableStateOf(false) }
     var torchOn by remember { mutableStateOf(false) }
     var zoomRatio by remember { mutableFloatStateOf(1f) }
@@ -168,7 +172,7 @@ fun BarcodeScannerSheet(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 20.dp, vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 // Top Action Bar
                 Row(
@@ -223,6 +227,40 @@ fun BarcodeScannerSheet(
                     }
                 }
 
+                // OCR Language Selector Row
+                if (scannerMode == ScannerMode.COVER_OCR) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FilterChip(
+                            selected = ocrLanguageCode == "latin",
+                            onClick = { ocrLanguageCode = "latin" },
+                            label = { Text(stringResource(R.string.ocr_lang_latin_default), style = MaterialTheme.typography.labelSmall) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ),
+                            shape = CircleShape,
+                        )
+                        installedOcrLangs.forEach { lang ->
+                            FilterChip(
+                                selected = ocrLanguageCode == lang.code,
+                                onClick = { ocrLanguageCode = lang.code },
+                                label = { Text(lang.nativeName, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                ),
+                                shape = CircleShape,
+                            )
+                        }
+                    }
+                }
+
                 if (granted) {
                     Box(
                         modifier = Modifier
@@ -231,6 +269,7 @@ fun BarcodeScannerSheet(
                     ) {
                         ScannerViewfinder(
                             scannerMode = scannerMode,
+                            ocrLanguageCode = ocrLanguageCode,
                             torchOn = torchOn,
                             zoomRatio = zoomRatio,
                             onZoomChange = { zoomRatio = it },
@@ -435,7 +474,7 @@ fun BarcodeScannerSheet(
                                     }
                                 }
 
-                                // Interactive Text Chips if frozen or available
+                                // Interactive Text Chips if available
                                 if (ocr.allDetectedLines.size > 1) {
                                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Text(
@@ -484,7 +523,13 @@ fun BarcodeScannerSheet(
                                 Button(
                                     onClick = {
                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onOcrResult(ocr)
+                                        val pack = OcrLanguageManager.availableLanguages.firstOrNull { it.code == ocrLanguageCode }
+                                        val finalResult = if (pack != null) {
+                                            ocr.copy(publisher = ocr.publisher)
+                                        } else {
+                                            ocr
+                                        }
+                                        onOcrResult(finalResult)
                                     },
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -717,6 +762,7 @@ private fun PermissionPanel(
 @Composable
 private fun ScannerViewfinder(
     scannerMode: ScannerMode,
+    ocrLanguageCode: String,
     torchOn: Boolean,
     zoomRatio: Float,
     onZoomChange: (Float) -> Unit,
@@ -735,6 +781,7 @@ private fun ScannerViewfinder(
     ) {
         CameraScannerPreview(
             scannerMode = scannerMode,
+            ocrLanguageCode = ocrLanguageCode,
             torchOn = torchOn,
             zoomRatio = zoomRatio,
             isOcrFrozen = isOcrFrozen,
@@ -904,6 +951,7 @@ private class CameraBarcodeResources {
 @Composable
 private fun CameraScannerPreview(
     scannerMode: ScannerMode,
+    ocrLanguageCode: String,
     torchOn: Boolean,
     zoomRatio: Float,
     isOcrFrozen: Boolean,
@@ -912,12 +960,14 @@ private fun CameraScannerPreview(
     onTapFocus: (Offset) -> Unit,
     onZoomChange: (Float) -> Unit,
 ) {
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var camera by remember { mutableStateOf<Camera?>(null) }
     var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
     val currentOnBarcode by rememberUpdatedState(onBarcode)
     val currentOnOcrDetected by rememberUpdatedState(onOcrDetected)
     val currentMode by rememberUpdatedState(scannerMode)
+    val currentLang by rememberUpdatedState(ocrLanguageCode)
     val currentFrozen by rememberUpdatedState(isOcrFrozen)
     val scanGate = remember { ScanGate() }
     val resources = remember { CameraBarcodeResources() }
@@ -1012,11 +1062,20 @@ private fun CameraScannerPreview(
                                             )
                                         } else {
                                             if (!currentFrozen) {
-                                                processOcrImage(
-                                                    imageProxy = imageProxy,
-                                                    recognizer = textRecognizer,
-                                                    onOcrDetected = currentOnOcrDetected,
-                                                )
+                                                if (currentLang == "latin") {
+                                                    processOcrImage(
+                                                        imageProxy = imageProxy,
+                                                        recognizer = textRecognizer,
+                                                        onOcrDetected = currentOnOcrDetected,
+                                                    )
+                                                } else {
+                                                    processTesseractImage(
+                                                        context = context,
+                                                        imageProxy = imageProxy,
+                                                        langCode = currentLang,
+                                                        onOcrDetected = currentOnOcrDetected,
+                                                    )
+                                                }
                                             } else {
                                                 imageProxy.close()
                                             }
@@ -1092,4 +1151,29 @@ private fun processOcrImage(
         .addOnCompleteListener {
             imageProxy.close()
         }
+}
+
+private fun processTesseractImage(
+    context: Context,
+    imageProxy: ImageProxy,
+    langCode: String,
+    onOcrDetected: (OcrBookDetails) -> Unit,
+) {
+    val now = System.currentTimeMillis()
+    if (now - lastOcrExecutionTimestamp < 600L) {
+        imageProxy.close()
+        return
+    }
+    lastOcrExecutionTimestamp = now
+
+    val bitmap = imageProxy.toBitmap()
+    imageProxy.close()
+    if (bitmap != null) {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+            val parsed = OcrLanguageManager.recognizeBitmap(context, bitmap, langCode)
+            if (parsed.title.isNotBlank() || parsed.authors.isNotEmpty()) {
+                onOcrDetected(parsed)
+            }
+        }
+    }
 }

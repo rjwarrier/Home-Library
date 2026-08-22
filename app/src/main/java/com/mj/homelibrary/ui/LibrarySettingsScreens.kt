@@ -1,6 +1,7 @@
 package com.mj.homelibrary.ui
 
 import android.net.Uri
+import kotlinx.coroutines.launch
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
@@ -28,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
@@ -585,6 +587,137 @@ private fun SurfaceIcon(icon: ImageVector) {
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+    }
+}
+
+@Composable
+fun OcrLanguagePacksScreen(
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+    var installedPacks by remember { mutableStateOf(com.mj.homelibrary.data.remote.OcrLanguageManager.getInstalledLanguages(context)) }
+    var downloadingCode by remember { mutableStateOf<String?>(null) }
+    var downloadProgress by androidx.compose.runtime.mutableFloatStateOf(0f)
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = dimensionResource(R.dimen.space_screen)),
+        contentPadding = PaddingValues(bottom = dimensionResource(R.dimen.space_2xl)),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { SettingsSubscreenHeader(titleRes = R.string.settings_ocr_language_packs_title, onBack = onBack) }
+        item {
+            Text(
+                text = stringResource(R.string.settings_ocr_language_packs_desc),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+
+        items(com.mj.homelibrary.data.remote.OcrLanguageManager.availableLanguages.size) { index ->
+            val pack = com.mj.homelibrary.data.remote.OcrLanguageManager.availableLanguages[index]
+            val isInstalled = installedPacks.any { it.code == pack.code }
+            val isDownloading = downloadingCode == pack.code
+
+            androidx.compose.material3.Surface(
+                shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card)),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = pack.nativeName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = "(${pack.englishName})",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Text(
+                            text = "${pack.sizeMb} MB · Tesseract OCR",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (isDownloading) {
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { downloadProgress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp),
+                            )
+                        }
+                    }
+
+                    if (isInstalled) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Text(stringResource(R.string.ocr_lang_installed), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            IconButton(
+                                onClick = {
+                                    com.mj.homelibrary.data.remote.OcrLanguageManager.deleteLanguagePack(context, pack.code)
+                                    installedPacks = com.mj.homelibrary.data.remote.OcrLanguageManager.getInstalledLanguages(context)
+                                },
+                            ) {
+                                Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.ocr_lang_delete), tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    } else if (isDownloading) {
+                        Text(
+                            stringResource(R.string.ocr_lang_downloading, (downloadProgress * 100).toInt()),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    } else {
+                        Button(
+                            onClick = {
+                                downloadingCode = pack.code
+                                downloadProgress = 0f
+                                coroutineScope.launch {
+                                    val result = com.mj.homelibrary.data.remote.OcrLanguageManager.downloadLanguagePack(context, pack.code) { progress ->
+                                        downloadProgress = progress
+                                    }
+                                    downloadingCode = null
+                                    if (result.isSuccess) {
+                                        installedPacks = com.mj.homelibrary.data.remote.OcrLanguageManager.getInstalledLanguages(context)
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)),
+                        ) {
+                            Text(stringResource(R.string.ocr_lang_download, pack.sizeMb), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
         }
     }
 }

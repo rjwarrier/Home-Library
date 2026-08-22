@@ -257,6 +257,7 @@ private enum class SettingsRoute {
     Appearance,
     LibraryPreferences,
     GenreManagement,
+    OcrLanguages,
     DataRecovery,
     PrivacyData,
     HelpAbout,
@@ -505,6 +506,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                     onOpenAppearance = { settingsRoute = SettingsRoute.Appearance },
                     onOpenLibraryPreferences = { settingsRoute = SettingsRoute.LibraryPreferences },
                     onOpenGenreManagement = { settingsRoute = SettingsRoute.GenreManagement },
+                    onOpenOcrLanguages = { settingsRoute = SettingsRoute.OcrLanguages },
                     onOpenDataRecovery = { settingsRoute = SettingsRoute.DataRecovery },
                     onOpenPrivacyData = { settingsRoute = SettingsRoute.PrivacyData },
                     onOpenHelpAbout = { settingsRoute = SettingsRoute.HelpAbout },
@@ -3275,6 +3277,7 @@ private fun SettingsScreen(
     onOpenAppearance: () -> Unit,
     onOpenLibraryPreferences: () -> Unit,
     onOpenGenreManagement: () -> Unit,
+    onOpenOcrLanguages: () -> Unit,
     onOpenDataRecovery: () -> Unit,
     onOpenPrivacyData: () -> Unit,
     onOpenHelpAbout: () -> Unit,
@@ -3338,6 +3341,7 @@ private fun SettingsScreen(
             onOpenAppearance = onOpenAppearance,
             onOpenLibraryPreferences = onOpenLibraryPreferences,
             onOpenGenreManagement = onOpenGenreManagement,
+            onOpenOcrLanguages = onOpenOcrLanguages,
             onOpenDataRecovery = onOpenDataRecovery,
             onOpenPrivacyData = onOpenPrivacyData,
             onOpenHelpAbout = onOpenHelpAbout,
@@ -3385,6 +3389,7 @@ private fun SettingsRouteContent(
     onOpenAppearance: () -> Unit,
     onOpenLibraryPreferences: () -> Unit,
     onOpenGenreManagement: () -> Unit,
+    onOpenOcrLanguages: () -> Unit,
     onOpenDataRecovery: () -> Unit,
     onOpenPrivacyData: () -> Unit,
     onOpenHelpAbout: () -> Unit,
@@ -3458,6 +3463,10 @@ private fun SettingsRouteContent(
             )
             return
         }
+        SettingsRoute.OcrLanguages -> {
+            OcrLanguagePacksScreen(onBack = onBack)
+            return
+        }
         SettingsRoute.DataRecovery -> {
             DataRecoverySettingsScreen(
                 settings = librarySettings,
@@ -3515,6 +3524,14 @@ private fun SettingsRouteContent(
                     title = stringResource(R.string.settings_genre_management_title),
                     body = stringResource(R.string.settings_genre_management_subtitle),
                     onClick = onOpenGenreManagement,
+                )
+            }
+            item {
+                SettingsEntryCard(
+                    icon = Icons.Outlined.Translate,
+                    title = stringResource(R.string.settings_ocr_language_packs_title),
+                    body = stringResource(R.string.settings_ocr_language_packs_desc),
+                    onClick = onOpenOcrLanguages,
                 )
             }
             item {

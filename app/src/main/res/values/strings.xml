@@ -468,4 +468,13 @@
     <string name="ocr_detected_lines_title">Detected text lines</string>
     <string name="ocr_set_as_title">Title</string>
     <string name="ocr_set_as_author">Author</string>
+    <string name="settings_ocr_language_packs_title">OCR language packs</string>
+    <string name="settings_ocr_language_packs_desc">Download regional and foreign language models for offline cover scanning.</string>
+    <string name="ocr_lang_installed">Installed</string>
+    <string name="ocr_lang_download">Download (%1$.1f MB)</string>
+    <string name="ocr_lang_downloading">Downloading %1$d%%…</string>
+    <string name="ocr_lang_delete">Remove</string>
+    <string name="ocr_lang_delete_confirm">Remove %1$s language pack to free storage?</string>
+    <string name="ocr_lang_latin_default">English / Latin</string>
+    <string name="ocr_lang_manage_in_settings">Manage language packs</string>
 </resources>
