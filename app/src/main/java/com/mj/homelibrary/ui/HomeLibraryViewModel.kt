@@ -588,6 +588,15 @@ data class LibraryFilters(
     val mainGenre: String? = null,
     val subGenre: String? = null,
 ) {
+    val hasActiveFilters: Boolean
+        get() = languageCode != null ||
+            readStatusCode != null ||
+            onLoanOnly ||
+            locationId != null ||
+            tag != null ||
+            mainGenre != null ||
+            subGenre != null
+
     fun matches(item: BookListItem, normalizedQuery: String, searchKey: String): Boolean {
         if (languageCode != null && item.book.languageCode != languageCode) return false
         if (readStatusCode != null && item.book.readStatusCode != readStatusCode) return false

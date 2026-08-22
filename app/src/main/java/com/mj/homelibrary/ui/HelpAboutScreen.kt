@@ -265,7 +265,7 @@ private fun HelpOnboardingCards(cards: List<HomeLibraryHelpCard>) {
                     modifier = Modifier
                         .weight(1f)
                         .height(156.dp),
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_xl)),
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                 ) {
                     Column(
@@ -315,7 +315,7 @@ private fun CollapsibleHelpCard(
         label = "faqArrowRotation"
     )
     androidx.compose.material3.Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier
@@ -329,7 +329,7 @@ private fun CollapsibleHelpCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.size(42.dp)) {
+                Surface(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card)), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.size(42.dp)) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(section.icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                     }
@@ -409,9 +409,9 @@ private fun HelpFooterActionButton(
 ) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_card)))
             .clickable(onClick = onClick)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(dimensionResource(R.dimen.corner_card)))
             .padding(horizontal = 10.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -431,7 +431,7 @@ private fun PrivacyInfoCard(
     @StringRes bodyRes: Int,
 ) {
     ElevatedCard(
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_xl)),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
     ) {
@@ -440,7 +440,7 @@ private fun PrivacyInfoCard(
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(44.dp)) {
+            Surface(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card)), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(44.dp)) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }

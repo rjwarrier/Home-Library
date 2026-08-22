@@ -153,12 +153,14 @@ private val HomeLibraryTypography = Typography(
     ),
 )
 
+// Mirrors the corner_* scale in dimens.xml. Kept as literal .dp here (not
+// dimensionResource) because this is a module-level val, outside any @Composable.
 private val HomeLibraryShapes = Shapes(
-    extraSmall = RoundedCornerShape(4.dp),
-    small = RoundedCornerShape(8.dp),
-    medium = RoundedCornerShape(14.dp),
-    large = RoundedCornerShape(18.dp),
-    extraLarge = RoundedCornerShape(28.dp),
+    extraSmall = RoundedCornerShape(8.dp), // corner_sm
+    small = RoundedCornerShape(12.dp), // corner_control
+    medium = RoundedCornerShape(16.dp), // corner_card
+    large = RoundedCornerShape(20.dp), // corner_prominent
+    extraLarge = RoundedCornerShape(32.dp), // corner_sheet
 )
 
 @Composable

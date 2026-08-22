@@ -123,6 +123,7 @@ import androidx.compose.material.icons.outlined.ViewList
 import androidx.compose.material.icons.outlined.Weekend
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -1038,6 +1039,7 @@ private fun LibraryScreen(
             onTagChange = onTagChange,
             onMainGenreChange = onMainGenreChange,
             onSubGenreChange = onSubGenreChange,
+            onClearFilters = onClearFilters,
         )
 
         when {
@@ -1104,7 +1106,7 @@ private fun SearchPill(query: String, onQueryChange: (String) -> Unit) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(dimensionResource(R.dimen.search_height)),
+            .heightIn(min = dimensionResource(R.dimen.search_height)),
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 1.dp,
@@ -1133,7 +1135,7 @@ private fun SearchPill(query: String, onQueryChange: (String) -> Unit) {
                 ),
             )
             AnimatedVisibility(visible = query.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
-                IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(28.dp)) {
+                IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(dimensionResource(R.dimen.icon_button_size))) {
                     Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.action_clear), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -1178,6 +1180,7 @@ private fun FilterStrip(
     onTagChange: (String?) -> Unit,
     onMainGenreChange: (String?) -> Unit,
     onSubGenreChange: (String?) -> Unit,
+    onClearFilters: () -> Unit,
 ) {
     val context = LocalContext.current
     val tags = remember(state.allBooks) { state.allBooks.flatMap { it.tags }.distinct().sortedBy { it.lowercase() } }
@@ -1194,6 +1197,11 @@ private fun FilterStrip(
         horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_sm)),
         contentPadding = PaddingValues(vertical = dimensionResource(R.dimen.space_xs)),
     ) {
+        if (state.filters.hasActiveFilters) {
+            item {
+                ClearFiltersChip(onClick = onClearFilters)
+            }
+        }
         if (mainGenres.isNotEmpty()) {
             item {
                 Box {
@@ -1384,8 +1392,27 @@ private fun rememberPressScale(interactionSource: InteractionSource): androidx.c
 }
 
 @Composable
+private fun ClearFiltersChip(onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(stringResource(R.string.action_clear_filters), maxLines = 1) },
+        leadingIcon = { Icon(Icons.Outlined.Close, contentDescription = null, modifier = Modifier.size(17.dp)) },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            labelColor = MaterialTheme.colorScheme.onErrorContainer,
+            leadingIconContentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
+        border = null,
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)),
+    )
+}
+
+@Composable
 private fun MorphChip(selected: Boolean, label: String, trailing: ImageVector? = null, onClick: () -> Unit) {
-    val cornerRadius by animateDpAsState(if (selected) 12.dp else 999.dp, label = "chipMorph")
+    val cornerRadius by animateDpAsState(
+        if (selected) dimensionResource(R.dimen.corner_control) else 999.dp,
+        label = "chipMorph",
+    )
     FilterChip(
         selected = selected,
         onClick = onClick,
@@ -1458,7 +1485,7 @@ private fun BookGridCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(0.68f)
-                    .shadow(6.dp, RoundedCornerShape(16.dp), clip = false),
+                    .shadow(6.dp, RoundedCornerShape(dimensionResource(R.dimen.corner_card)), clip = false),
                 titleSize = 16,
             )
             if (item.isOnLoan && !selectionMode) {
@@ -1531,7 +1558,7 @@ private fun BookListRow(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_lg)))
                     .background(if (item.isOnLoan) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer)
                     .padding(horizontal = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1558,7 +1585,7 @@ private fun BookListRow(
                     onLongClick = onLongClick,
                     onLongClickLabel = stringResource(R.string.content_description_enter_selection),
                 ),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 1.dp,
         ) {
@@ -1624,7 +1651,7 @@ private fun BookCover(
     val palette = coverPaletteFor(book)
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_card)))
             .background(palette.bg),
     ) {
         if (!book.coverImagePath.isNullOrBlank() || !book.coverUrl.isNullOrBlank()) {
@@ -1695,7 +1722,7 @@ private fun LoanBadge(item: BookListItem, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .height(24.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_sm)))
             .background(bg)
             .padding(horizontal = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1731,7 +1758,7 @@ private fun StatusPill(item: BookListItem) {
     Text(
         text = stringResource(label),
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_sm)))
             .background(bg)
             .padding(horizontal = 9.dp, vertical = 5.dp),
         color = fg,
@@ -1757,7 +1784,7 @@ private fun ShelvesScreen(
             actions = {
                 OutlinedButton(
                     onClick = onAddShelf,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                 ) {
                     Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1830,12 +1857,12 @@ private fun BookcaseCard(
     onAudit: (LocationEntity) -> Unit,
 ) {
     ElevatedCard(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(
             modifier = Modifier
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)))
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -1868,7 +1895,7 @@ private fun ShelfRow(
                 modifier = Modifier.weight(1f),
             )
             CountChip(stringResource(R.string.book_count, books.size), MaterialTheme.colorScheme.tertiaryContainer)
-            IconButton(onClick = { onAudit(location) }, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = { onAudit(location) }, modifier = Modifier.size(dimensionResource(R.dimen.icon_button_size))) {
                 Icon(Icons.Outlined.FactCheck, contentDescription = stringResource(R.string.shelf_audit), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             }
         }
@@ -1908,7 +1935,7 @@ private fun Spine(item: BookListItem, onClick: () -> Unit) {
         modifier = Modifier
             .width(width)
             .height(height)
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_xs)))
             .background(palette.bg)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.BottomCenter,
@@ -1976,7 +2003,7 @@ private fun OverdueBanner() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)))
             .background(MaterialTheme.colorScheme.errorContainer)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_md)),
@@ -2005,9 +2032,9 @@ private fun BorrowerCard(
 ) {
     val context = LocalContext.current
     val borrowerContact = loans.firstNotNullOfOrNull { it.borrowerContact?.takeIf(String::isNotBlank) }
-    ElevatedCard(shape = RoundedCornerShape(20.dp)) {
+    ElevatedCard(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent))) {
         Column(
-            modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp)),
+            modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(dimensionResource(R.dimen.corner_prominent))),
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
@@ -2064,7 +2091,7 @@ private fun LoanBookRow(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md)))
                     .background(MaterialTheme.colorScheme.secondaryContainer)
                     .padding(horizontal = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -2089,7 +2116,7 @@ private fun LoanBookRow(
                 Text(item.book.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 DueChip(item = item, dueText = loan.expectedReturnDateEpochMillis.displayDate(context))
             }
-            OutlinedButton(onClick = { onReturn(loan) }, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
+            OutlinedButton(onClick = { onReturn(loan) }, shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)), contentPadding = PaddingValues(horizontal = 12.dp)) {
                 Text(stringResource(R.string.action_return))
             }
         }
@@ -2102,7 +2129,7 @@ private fun DueChip(item: BookListItem, dueText: String) {
     val fg = if (item.isOverdue) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(7.dp))
+            .clip(CircleShape)
             .background(bg)
             .padding(horizontal = 7.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -2175,7 +2202,7 @@ private fun AnalyticsOverviewGrid(stats: LibraryStats) {
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Card(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(dimensionResource(R.dimen.corner_hero)),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
         ) {
             Row(
@@ -2230,7 +2257,7 @@ private fun MetricTile(
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
         color = color,
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -2249,11 +2276,10 @@ private fun ReadingStatusSegmentedCard(stats: LibraryStats) {
     val unreadPct = (stats.unreadBooks * 100) / total
     val abandonedPct = (stats.abandonedBooks * 100) / total
 
-    ChartCard(title = R.string.screen_stats) {
+    ChartCard(title = R.string.stats_reading_status_breakdown) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(stringResource(R.string.stats_reading_status_breakdown), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Row(
-                modifier = Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(7.dp)),
+                modifier = Modifier.fillMaxWidth().height(14.dp).clip(CircleShape),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 if (stats.finishedBooks > 0) {
@@ -2285,17 +2311,16 @@ private fun ReadingStatusSegmentedCard(stats: LibraryStats) {
 @Composable
 private fun StatusLegendItem(color: Color, label: String, count: Int, pct: Int) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(color))
+        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(color))
         Text(stringResource(R.string.stats_status_legend_item, label, count, pct), style = MaterialTheme.typography.bodySmall)
     }
 }
 
 @Composable
 private fun TopAuthorsLeaderboardCard(authors: Map<String, Int>) {
-    ChartCard(title = R.string.field_authors) {
+    ChartCard(title = R.string.stats_most_collected_authors) {
         val maxCount = authors.values.maxOrNull()?.coerceAtLeast(1) ?: 1
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(stringResource(R.string.stats_most_collected_authors), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             authors.entries.take(5).forEach { (author, count) ->
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -2306,7 +2331,7 @@ private fun TopAuthorsLeaderboardCard(authors: Map<String, Int>) {
                         modifier = Modifier
                             .fillMaxWidth(count / maxCount.toFloat())
                             .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_xs)))
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
                     )
                 }
@@ -2317,14 +2342,13 @@ private fun TopAuthorsLeaderboardCard(authors: Map<String, Int>) {
 
 @Composable
 private fun FormatDistributionCard(formats: Map<String, Int>) {
-    ChartCard(title = R.string.format_label) {
+    ChartCard(title = R.string.stats_bindings_formats) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.stats_bindings_formats), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 formats.forEach { (code, count) ->
                     val label = BookFormatCode.fromCode(code).labelRes
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     ) {
                         Text(
@@ -2343,9 +2367,8 @@ private fun FormatDistributionCard(formats: Map<String, Int>) {
 private fun PublicationDecadesCard(decades: Map<String, Int>) {
     val sorted = decades.entries.sortedBy { it.key }
     val maxCount = sorted.maxOfOrNull { it.value }?.coerceAtLeast(1) ?: 1
-    ChartCard(title = R.string.field_published_year) {
+    ChartCard(title = R.string.stats_publication_timeline) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.stats_publication_timeline), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Row(
                 modifier = Modifier.fillMaxWidth().height(90.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2385,7 +2408,7 @@ private fun LanguageBarCard(languages: Map<String, Int>) {
             label = "languageBarGrowth"
         )
         Row(
-            modifier = Modifier.fillMaxWidth().height(16.dp).clip(RoundedCornerShape(8.dp)),
+            modifier = Modifier.fillMaxWidth().height(16.dp).clip(RoundedCornerShape(dimensionResource(R.dimen.corner_sm))),
             horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             languages.entries.sortedByDescending { it.value }.forEachIndexed { index, entry ->
@@ -2401,7 +2424,7 @@ private fun LanguageBarCard(languages: Map<String, Int>) {
         Spacer(Modifier.height(12.dp))
         languages.entries.sortedByDescending { it.value }.forEachIndexed { index, entry ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(chartColor(index)))
+                Box(Modifier.size(10.dp).clip(CircleShape).background(chartColor(index)))
                 Text(
                     stringResource(R.string.stats_legend_item, languageLabel(LocalContext.current, entry.key), entry.value),
                     style = MaterialTheme.typography.bodySmall,
@@ -2507,10 +2530,10 @@ private fun ChartCard(
     titleArg: Any? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    ElevatedCard(modifier = modifier, shape = RoundedCornerShape(22.dp)) {
+    ElevatedCard(modifier = modifier, shape = RoundedCornerShape(dimensionResource(R.dimen.corner_xl))) {
         Column(
             modifier = Modifier
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(dimensionResource(R.dimen.corner_xl)))
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -2798,7 +2821,7 @@ private fun SettingsRouteContent(
 @Composable
 private fun AppearanceEntryCard(onOpenAppearance: () -> Unit) {
     androidx.compose.material3.Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier
@@ -2815,7 +2838,7 @@ private fun AppearanceEntryCard(onOpenAppearance: () -> Unit) {
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md)))
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
@@ -2838,7 +2861,7 @@ private fun SettingsEntryCard(
     onClick: () -> Unit,
 ) {
     androidx.compose.material3.Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier
@@ -2855,7 +2878,7 @@ private fun SettingsEntryCard(
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md)))
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
@@ -2872,16 +2895,16 @@ private fun SettingsEntryCard(
 
 @Composable
 private fun CompleteBackupCard(onExport: () -> Unit, onRestore: () -> Unit) {
-    ElevatedCard(shape = RoundedCornerShape(22.dp)) {
+    ElevatedCard(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_xl))) {
         Column(
             modifier = Modifier
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(dimensionResource(R.dimen.corner_xl)))
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(
-                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md))).background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Outlined.CloudDone, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -2892,10 +2915,10 @@ private fun CompleteBackupCard(onExport: () -> Unit, onRestore: () -> Unit) {
                 }
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onExport, shape = RoundedCornerShape(14.dp)) {
+                Button(onClick = onExport, shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md))) {
                     Text(stringResource(R.string.action_export_complete_backup))
                 }
-                OutlinedButton(onClick = onRestore, shape = RoundedCornerShape(14.dp)) {
+                OutlinedButton(onClick = onRestore, shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md))) {
                     Text(stringResource(R.string.action_restore_complete_backup))
                 }
             }
@@ -2921,7 +2944,7 @@ private fun DesignedEmptyState(
             Box(
                 modifier = Modifier
                     .size(dimensionResource(R.dimen.empty_icon_container))
-                    .clip(RoundedCornerShape(34.dp))
+                    .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_sheet)))
                     .background(containerColor),
                 contentAlignment = Alignment.Center,
             ) {
@@ -2932,7 +2955,7 @@ private fun DesignedEmptyState(
             Text(body, style = MaterialTheme.typography.bodyMedium, lineHeight = 23.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             if (cta != null && onCta != null) {
                 Spacer(Modifier.height(16.dp))
-                Button(onClick = onCta, shape = RoundedCornerShape(16.dp), modifier = Modifier.height(48.dp)) {
+                Button(onClick = onCta, shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card)), modifier = Modifier.height(48.dp)) {
                     Text(cta)
                 }
             }
@@ -2977,8 +3000,8 @@ private fun GranthapuraFabMenu(
             modifier = Modifier
                 .size(dimensionResource(R.dimen.fab_size))
                 .scale(fabPressScale)
-                .shadow(10.dp, RoundedCornerShape(if (expanded) 28.dp else 20.dp)),
-            shape = RoundedCornerShape(if (expanded) 28.dp else 20.dp),
+                .shadow(10.dp, RoundedCornerShape(if (expanded) dimensionResource(R.dimen.corner_2xl) else dimensionResource(R.dimen.corner_prominent))),
+            shape = RoundedCornerShape(if (expanded) dimensionResource(R.dimen.corner_2xl) else dimensionResource(R.dimen.corner_prominent)),
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ) {
@@ -3024,8 +3047,8 @@ private fun LoansFabMenu(
             modifier = Modifier
                 .size(dimensionResource(R.dimen.fab_size))
                 .scale(fabPressScale)
-                .shadow(10.dp, RoundedCornerShape(if (expanded) 28.dp else 20.dp)),
-            shape = RoundedCornerShape(if (expanded) 28.dp else 20.dp),
+                .shadow(10.dp, RoundedCornerShape(if (expanded) dimensionResource(R.dimen.corner_2xl) else dimensionResource(R.dimen.corner_prominent))),
+            shape = RoundedCornerShape(if (expanded) dimensionResource(R.dimen.corner_2xl) else dimensionResource(R.dimen.corner_prominent)),
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ) {
@@ -3044,8 +3067,8 @@ private fun ScreenFab(icon: ImageVector, label: String, onClick: () -> Unit) {
         modifier = Modifier
             .size(dimensionResource(R.dimen.fab_size))
             .scale(pressScale)
-            .shadow(8.dp, RoundedCornerShape(22.dp)),
-        shape = RoundedCornerShape(22.dp),
+            .shadow(8.dp, RoundedCornerShape(dimensionResource(R.dimen.corner_xl))),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_xl)),
         containerColor = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {
@@ -3079,7 +3102,7 @@ private fun FabMenuItem(icon: ImageVector, label: String, placement: FabPlacemen
         if (placement == FabPlacement.LEFT) {
             FabMenuIcon(icon = icon, label = label, onClick = onClick)
         }
-        Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
+        Surface(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)), color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
             Text(label, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
         }
         if (placement == FabPlacement.RIGHT) {
@@ -3092,7 +3115,7 @@ private fun FabMenuItem(icon: ImageVector, label: String, placement: FabPlacemen
 private fun FabMenuIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.size(52.dp).clickable(onClick = onClick),
-        shape = RoundedCornerShape(17.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
         color = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
         tonalElevation = 4.dp,
@@ -3112,7 +3135,7 @@ private fun AddShelfSheet(
     var shelf by remember { mutableStateOf("") }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
@@ -3125,10 +3148,10 @@ private fun AddShelfSheet(
             TextFieldLine(unit, { unit = it }, R.string.field_unit)
             TextFieldLine(shelf, { shelf = it }, R.string.field_shelf)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card))) {
                     Text(stringResource(R.string.action_cancel))
                 }
-                Button(onClick = { onSave(room, unit, shelf) }, modifier = Modifier.weight(1.4f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                Button(onClick = { onSave(room, unit, shelf) }, modifier = Modifier.weight(1.4f).height(52.dp), shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card))) {
                     Text(stringResource(R.string.action_add_shelf))
                 }
             }
@@ -3246,7 +3269,7 @@ private fun AddBookSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md)))
                         .background(MaterialTheme.colorScheme.secondaryContainer)
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -3299,7 +3322,7 @@ private fun AddBookSheet(
                 IconButton(
                     modifier = Modifier
                         .size(56.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_card)))
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     onClick = { showScanner = true },
                 ) {
@@ -3310,7 +3333,7 @@ private fun AddBookSheet(
                 OutlinedButton(
                     enabled = draft.isbn.validIsbnOrNull() != null && !lookupInProgress,
                     onClick = { lookupIfValid(draft.isbn) },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
                 ) {
                     Icon(Icons.Outlined.CloudDone, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
@@ -3432,7 +3455,7 @@ private fun AddBookSheet(
                 Button(
                     onClick = { onSave(draft) },
                     enabled = !savingInProgress,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
                     modifier = Modifier.height(44.dp),
                 ) {
                     if (savingInProgress) {
@@ -3468,7 +3491,7 @@ private fun AddBookSheet(
         ModalBottomSheet(
             onDismissRequest = onDismiss,
             sheetState = sheetState,
-            shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+            shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
             editorContent(
@@ -3523,9 +3546,9 @@ private fun CoverEditor(
     findCoversInProgress: Boolean = false,
 ) {
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
         color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)),
+        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(dimensionResource(R.dimen.corner_lg))),
     ) {
         val previewEntity = remember(draft.id, draft.title, draft.authors, draft.languageCode, draft.coverImagePath, draft.coverUrl, draft.formatCode) {
             draft.toEntity()
@@ -3544,7 +3567,7 @@ private fun CoverEditor(
                     label = R.string.field_cover_url,
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onPickCover, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
+                    OutlinedButton(onClick = onPickCover, shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)), contentPadding = PaddingValues(horizontal = 12.dp)) {
                         Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(17.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.action_choose_cover))
@@ -3556,7 +3579,7 @@ private fun CoverEditor(
                         OutlinedButton(
                             onClick = onFindCovers,
                             enabled = !findCoversInProgress,
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)),
                             contentPadding = PaddingValues(horizontal = 12.dp),
                         ) {
                             if (findCoversInProgress) {
@@ -3602,7 +3625,7 @@ private fun CropCoverSheet(
 
     ModalBottomSheet(
         onDismissRequest = { if (!cropInProgress) onDismiss() },
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
@@ -3615,7 +3638,7 @@ private fun CropCoverSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(320.dp)
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)))
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                 contentAlignment = Alignment.Center,
             ) {
@@ -3623,7 +3646,7 @@ private fun CropCoverSheet(
                     modifier = Modifier
                         .width(CropFrameWidth)
                         .height(CropFrameHeight)
-                        .clip(RoundedCornerShape(16.dp)),
+                        .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_card))),
                 ) {
                     AsyncImage(
                         model = imageUri,
@@ -3653,7 +3676,7 @@ private fun CropCoverSheet(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(16.dp)),
+                            .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(dimensionResource(R.dimen.corner_card))),
                     )
                 }
             }
@@ -3670,7 +3693,7 @@ private fun CropCoverSheet(
                     onClick = onUseOriginal,
                     enabled = !cropInProgress,
                     modifier = Modifier.weight(1f).height(52.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card)),
                 ) {
                     Text(stringResource(R.string.action_use_original))
                 }
@@ -3687,7 +3710,7 @@ private fun CropCoverSheet(
                     },
                     enabled = !cropInProgress,
                     modifier = Modifier.weight(1.25f).height(52.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card)),
                 ) {
                     if (cropInProgress) {
                         androidx.compose.material3.CircularProgressIndicator(
@@ -3795,7 +3818,7 @@ private fun CoverPickerSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
@@ -3825,8 +3848,8 @@ private fun CoverPickerSheet(
                                 .fillMaxWidth()
                                 .aspectRatio(0.68f)
                                 .scale(pressScale)
-                                .clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_control)))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(dimensionResource(R.dimen.corner_control)))
                                 .clickable(interactionSource = interactionSource, indication = LocalIndication.current) { onSelect(url) },
                         )
                     }
@@ -3842,7 +3865,7 @@ private fun MetadataLoadedCard(draft: BookDraft) {
     val previewEntity = remember(draft.id, draft.title, draft.authors, draft.languageCode, draft.coverImagePath, draft.coverUrl, draft.formatCode) {
         draft.toEntity()
     }
-    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+    Surface(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)), color = MaterialTheme.colorScheme.secondaryContainer) {
         Row(
             modifier = Modifier.padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -3864,7 +3887,7 @@ private fun MetadataLoadedCard(draft: BookDraft) {
 
 @Composable
 private fun AutoLookupFailedBanner(isbn: String, onDismiss: () -> Unit) {
-    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+    Surface(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)), color = MaterialTheme.colorScheme.tertiaryContainer) {
         Row(
             modifier = Modifier.padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -3884,7 +3907,7 @@ private fun AutoLookupFailedBanner(isbn: String, onDismiss: () -> Unit) {
                     color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f),
                 )
             }
-            IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+            IconButton(onClick = onDismiss, modifier = Modifier.size(dimensionResource(R.dimen.icon_button_size))) {
                 Icon(
                     Icons.Outlined.Close,
                     contentDescription = stringResource(R.string.content_description_close),
@@ -3904,7 +3927,7 @@ private fun SynopsisField(value: String, onValueChange: (String) -> Unit) {
         label = { Text(stringResource(R.string.field_synopsis)) },
         modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
         minLines = 4,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
         textStyle = MaterialTheme.typography.bodyMedium,
         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -3915,10 +3938,10 @@ private fun SynopsisField(value: String, onValueChange: (String) -> Unit) {
 
 @Composable
 private fun ShelfLocationField(draft: BookDraft, locations: List<LocationEntity>, onDraftChange: (BookDraft) -> Unit) {
-    ElevatedCard(shape = RoundedCornerShape(20.dp)) {
+    ElevatedCard(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent))) {
         Column(
             modifier = Modifier
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)))
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -4013,11 +4036,11 @@ private fun DropdownSelectField(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(dimensionResource(R.dimen.corner_md)))
                     .clickable(enabled = enabled) { dismissKeyboard(); expanded = true },
             ) {
                 Row(
@@ -4125,7 +4148,7 @@ private fun TextFieldLine(
         placeholder = placeholder?.let { { Text(stringResource(it)) } },
         singleLine = singleLine,
         minLines = if (singleLine) 1 else 3,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
         textStyle = if (monospace) MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace) else MaterialTheme.typography.bodyMedium,
         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -4147,7 +4170,7 @@ private fun TextFieldLineText(
         onValueChange = onValueChange,
         label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         singleLine = true,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
         textStyle = MaterialTheme.typography.bodyMedium,
         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -4184,7 +4207,7 @@ private fun SuggestedTextFieldLine(
         )
         AnimatedVisibility(visible = focused && filtered.isNotEmpty()) {
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 tonalElevation = 2.dp,
                 modifier = Modifier
@@ -4238,7 +4261,7 @@ private fun BookDetailSheet(
     val palette = coverPaletteFor(item.book)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
         containerColor = MaterialTheme.colorScheme.surface,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
@@ -4308,7 +4331,7 @@ private fun BookDetailSheet(
                         .align(Alignment.Center)
                         .width(124.dp)
                         .height(184.dp)
-                        .shadow(16.dp, RoundedCornerShape(14.dp)),
+                        .shadow(16.dp, RoundedCornerShape(dimensionResource(R.dimen.corner_md))),
                 )
             }
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -4351,7 +4374,7 @@ private fun BookDetailSheet(
                 if (item.activeLoan != null) {
                     LoanDetailCard(item = item, loan = item.activeLoan, onReturn = onReturn)
                 } else {
-                    Button(onClick = onLoan, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp)) {
+                    Button(onClick = onLoan, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card))) {
                         Icon(Icons.Outlined.Outbound, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.loan_this_book))
@@ -4380,16 +4403,16 @@ private fun MetadataChip(icon: ImageVector, label: String) {
         onClick = {},
         label = { Text(label, fontSize = 12.sp, maxLines = 1) },
         leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp)) },
-        shape = RoundedCornerShape(9.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)),
     )
 }
 
 @Composable
 private fun LocationCard(breadcrumb: String, onMove: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
         color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)),
+        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(dimensionResource(R.dimen.corner_lg))),
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -4401,7 +4424,7 @@ private fun LocationCard(breadcrumb: String, onMove: () -> Unit) {
                 Text(stringResource(R.string.shelved_at), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(breadcrumb, style = MaterialTheme.typography.labelLarge)
             }
-            OutlinedButton(onClick = onMove, shape = RoundedCornerShape(11.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
+            OutlinedButton(onClick = onMove, shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)), contentPadding = PaddingValues(horizontal = 12.dp)) {
                 Text(stringResource(R.string.action_move))
             }
         }
@@ -4413,7 +4436,7 @@ private fun LoanDetailCard(item: BookListItem, loan: LoanEntity, onReturn: (Loan
     val context = LocalContext.current
     val bg = if (item.isOverdue) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
     val fg = if (item.isOverdue) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
-    Surface(shape = RoundedCornerShape(18.dp), color = bg, contentColor = fg) {
+    Surface(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)), color = bg, contentColor = fg) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Avatar(loan.borrowerName, size = 38.dp)
@@ -4422,7 +4445,7 @@ private fun LoanDetailCard(item: BookListItem, loan: LoanEntity, onReturn: (Loan
                     Text(stringResource(R.string.due_on, loan.expectedReturnDateEpochMillis.displayDate(context)), style = MaterialTheme.typography.labelSmall, color = fg.copy(alpha = 0.8f))
                 }
             }
-            Button(onClick = { onReturn(loan) }, modifier = Modifier.fillMaxWidth().height(42.dp), shape = RoundedCornerShape(14.dp)) {
+            Button(onClick = { onReturn(loan) }, modifier = Modifier.fillMaxWidth().height(42.dp), shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md))) {
                 Icon(Icons.Outlined.AssignmentReturn, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.action_mark_returned))
@@ -4477,7 +4500,7 @@ private fun AddPersonSheet(
     var relation by remember { mutableStateOf("") }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
@@ -4500,14 +4523,14 @@ private fun AddPersonSheet(
             }
             TextFieldLine(relation, { relation = it }, R.string.field_person_relation)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card))) {
                     Text(stringResource(R.string.action_cancel))
                 }
                 Button(
                     onClick = { onSave(name, phone, relation) },
                     enabled = name.isNotBlank(),
                     modifier = Modifier.weight(1.4f).height(52.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card)),
                 ) {
                     Text(stringResource(R.string.action_save_person))
                 }
@@ -4531,7 +4554,7 @@ private fun MoveBookSheet(
     var positionNote by remember(item.book.id) { mutableStateOf(item.book.positionNote.orEmpty()) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
@@ -4551,10 +4574,10 @@ private fun MoveBookSheet(
             )
             TextFieldLine(positionNote, { positionNote = it }, R.string.field_position_note)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card))) {
                     Text(stringResource(R.string.action_cancel))
                 }
-                Button(onClick = { onSave(room, unit, shelf, positionNote) }, modifier = Modifier.weight(1.4f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                Button(onClick = { onSave(room, unit, shelf, positionNote) }, modifier = Modifier.weight(1.4f).height(52.dp), shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card))) {
                     Text(stringResource(R.string.action_move))
                 }
             }
@@ -4574,7 +4597,7 @@ private fun ShelfAuditSheet(
     val context = LocalContext.current
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
@@ -4589,7 +4612,7 @@ private fun ShelfAuditSheet(
             } else {
                 books.forEach { item ->
                     Row(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onBookClick(item) }.padding(vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md))).clickable { onBookClick(item) }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -4630,7 +4653,7 @@ private fun NewLoanFlowSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
@@ -4648,7 +4671,7 @@ private fun NewLoanFlowSheet(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Button(onClick = onAddPersonRequest, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp)) {
+                        Button(onClick = onAddPersonRequest, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card))) {
                             Icon(Icons.Outlined.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(stringResource(R.string.action_add_person))
@@ -4659,7 +4682,7 @@ private fun NewLoanFlowSheet(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(16.dp))
+                                        .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_card)))
                                         .clickable {
                                             selectedBorrower = borrower
                                             step = if (selectedBook != null) LoanFlowStep.Confirm else LoanFlowStep.SelectBook
@@ -4714,7 +4737,7 @@ private fun NewLoanFlowSheet(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(16.dp))
+                                        .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_card)))
                                         .clickable {
                                             selectedBook = item.book
                                             step = LoanFlowStep.Confirm
@@ -4759,7 +4782,7 @@ private fun NewLoanFlowSheet(
                         }
                     }
                     selectedBorrower?.let { borrower ->
-                        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                        Surface(shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)), color = MaterialTheme.colorScheme.secondaryContainer) {
                             Row(
                                 modifier = Modifier.padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -4776,7 +4799,7 @@ private fun NewLoanFlowSheet(
                     TextFieldLine(dueDate, { dueDate = it }, R.string.field_due_date, monospace = true, placeholder = R.string.date_format_hint)
                     TextFieldLine(notes, { notes = it }, R.string.field_notes)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                        OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card))) {
                             Text(stringResource(R.string.action_cancel))
                         }
                         Button(
@@ -4798,7 +4821,7 @@ private fun NewLoanFlowSheet(
                             },
                             enabled = selectedBorrower != null && selectedBook != null,
                             modifier = Modifier.weight(1.4f).height(52.dp),
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card)),
                         ) {
                             Text(stringResource(R.string.action_loan_book))
                         }
@@ -4828,7 +4851,7 @@ private fun DeleteBookDialog(
             Button(
                 onClick = onDelete,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
             ) {
                 Text(stringResource(R.string.action_delete))
             }
@@ -4854,7 +4877,7 @@ private fun BulkDeleteDialog(
             Button(
                 onClick = onDelete,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
             ) {
                 Text(stringResource(R.string.action_delete))
             }
@@ -4871,7 +4894,7 @@ private fun BulkStatusSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
@@ -4889,7 +4912,7 @@ private fun BulkStatusSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md)))
                         .clickable { onSelectStatus(status.code) }
                         .padding(vertical = 14.dp, horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -4914,7 +4937,7 @@ private fun BulkMoveSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         LazyColumn(
@@ -4934,7 +4957,7 @@ private fun BulkMoveSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md)))
                         .clickable { onSelectLocation(null) }
                         .padding(vertical = 14.dp, horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -4948,7 +4971,7 @@ private fun BulkMoveSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md)))
                         .clickable { onSelectLocation(location.id) }
                         .padding(vertical = 14.dp, horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -4995,7 +5018,7 @@ private fun LookupFailedDialog(
                 OutlinedButton(onClick = { openSearch("https://www.goodreads.com/search?q=$isbn") }) {
                     Text(stringResource(R.string.action_search_goodreads))
                 }
-                Button(onClick = { openSearch("https://www.google.com/search?q=$isbn%20book") }, shape = RoundedCornerShape(14.dp)) {
+                Button(onClick = { openSearch("https://www.google.com/search?q=$isbn%20book") }, shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md))) {
                     Text(stringResource(R.string.action_search_google))
                 }
             }
@@ -5016,7 +5039,7 @@ private fun ReturnConfirmationDialog(
         onDismissRequest = onDismiss,
         icon = {
             Box(
-                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
+                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(dimensionResource(R.dimen.corner_lg))).background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Outlined.AssignmentReturn, contentDescription = null)
@@ -5033,7 +5056,7 @@ private fun ReturnConfirmationDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_not_yet)) }
         },
         confirmButton = {
-            Button(onClick = onReturn, shape = RoundedCornerShape(14.dp)) { Text(stringResource(R.string.action_returned)) }
+            Button(onClick = onReturn, shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md))) { Text(stringResource(R.string.action_returned)) }
         },
     )
 }
@@ -5042,7 +5065,7 @@ private fun ReturnConfirmationDialog(
 private fun CountChip(text: String, color: Color = MaterialTheme.colorScheme.surfaceVariant) {
     Text(
         text = text,
-        modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(color).padding(horizontal = 7.dp, vertical = 3.dp),
+        modifier = Modifier.clip(CircleShape).background(color).padding(horizontal = 7.dp, vertical = 3.dp),
         style = MaterialTheme.typography.labelSmall,
         maxLines = 1,
     )
@@ -5052,7 +5075,7 @@ private fun CountChip(text: String, color: Color = MaterialTheme.colorScheme.sur
 private fun Avatar(name: String, size: Dp = 40.dp) {
     val initials = name.split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.joinToString("").take(2)
     Box(
-        modifier = Modifier.size(size).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+        modifier = Modifier.size(size).clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md))).background(MaterialTheme.colorScheme.primaryContainer),
         contentAlignment = Alignment.Center,
     ) {
         Text(initials, color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.SemiBold)

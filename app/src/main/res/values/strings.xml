@@ -87,6 +87,7 @@
     <string name="filter_language">Language</string>
     <string name="filter_on_loan">On loan</string>
     <string name="filter_location">Location</string>
+    <string name="action_clear_filters">Clear filters</string>
     <string name="sort_recent">Recently added</string>
     <string name="sort_title">Title</string>
     <string name="sort_author">Author</string>

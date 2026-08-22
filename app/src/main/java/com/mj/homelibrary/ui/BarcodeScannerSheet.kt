@@ -63,6 +63,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -177,8 +178,8 @@ fun BarcodeScannerSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)
-                        .border(1.dp, scannerColors.accent.copy(alpha = 0.30f), RoundedCornerShape(18.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.56f), RoundedCornerShape(18.dp))
+                        .border(1.dp, scannerColors.accent.copy(alpha = 0.30f), RoundedCornerShape(dimensionResource(R.dimen.corner_lg)))
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.56f), RoundedCornerShape(dimensionResource(R.dimen.corner_lg)))
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -197,7 +198,7 @@ fun BarcodeScannerSheet(
                         if (bulkScan && scannedQueue.isNotEmpty()) onBulkScanned(scannedQueue.toList()) else onDismiss()
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
                 ) {
                     Text(
                         if (bulkScan) stringResource(R.string.review_books, scannedQueue.size) else stringResource(R.string.action_cancel),
@@ -233,7 +234,7 @@ private fun PermissionPanel(onGrant: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(230.dp)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(24.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(dimensionResource(R.dimen.corner_hero)))
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -260,7 +261,7 @@ private fun ScannerViewfinder(torchOn: Boolean, onBarcode: (String) -> Unit) {
                         MaterialTheme.colorScheme.surfaceContainerHighest,
                     ),
                 ),
-                RoundedCornerShape(24.dp),
+                RoundedCornerShape(dimensionResource(R.dimen.corner_hero)),
             ),
         contentAlignment = Alignment.Center,
     ) {

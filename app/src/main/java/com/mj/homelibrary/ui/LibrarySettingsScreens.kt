@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -426,7 +427,7 @@ private fun GenreParentDropdown(
             onClick = { expanded = true },
             enabled = options.isNotEmpty(),
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
         ) {
             Text(
                 text = selected.ifBlank { stringResource(R.string.field_select_placeholder) },
@@ -469,7 +470,7 @@ private fun GenreManagementSection(
             modifier = Modifier.weight(1f),
             placeholder = { Text(stringResource(R.string.genre_add_placeholder)) },
             singleLine = true,
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
         )
         Button(
             onClick = {
@@ -477,7 +478,7 @@ private fun GenreManagementSection(
                 newValue = ""
             },
             enabled = newValue.isNotBlank(),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
         ) {
             Text(stringResource(R.string.action_add))
         }
@@ -487,7 +488,7 @@ private fun GenreManagementSection(
 @Composable
 private fun ManagedGenreChip(label: String, onRemove: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(999.dp),
+        shape = CircleShape,
         color = MaterialTheme.colorScheme.secondaryContainer,
     ) {
         Row(
@@ -496,7 +497,9 @@ private fun ManagedGenreChip(label: String, onRemove: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
-            IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
+            // 36dp, not the usual 48dp touch target: this sits in a wrapping FlowRow of many
+            // compact chips, and a full 48dp target would balloon every chip's height.
+            IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
                 Icon(
                     Icons.Outlined.Close,
                     contentDescription = stringResource(R.string.action_remove_genre, label),
@@ -541,7 +544,7 @@ private fun SettingsControlCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     androidx.compose.material3.Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth(),
@@ -576,7 +579,7 @@ private fun SettingsControlCard(
 @Composable
 private fun SurfaceIcon(icon: ImageVector) {
     androidx.compose.material3.Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
         color = MaterialTheme.colorScheme.primaryContainer,
         modifier = Modifier.size(44.dp),
     ) {

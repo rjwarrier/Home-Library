@@ -265,7 +265,7 @@ private fun ThemeModeCard(
         modifier = modifier
             .height(124.dp)
             .expressiveClickable(onClick = onClick),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_hero)),
         colors = CardDefaults.elevatedCardColors(containerColor = cardColor),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
     ) {
@@ -403,7 +403,7 @@ private fun FontFamilyCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(108.dp)
-                .clip(RoundedCornerShape(24.dp))
+                .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_hero)))
                 .background(cardColor),
             contentAlignment = Alignment.Center,
         ) {
@@ -434,7 +434,7 @@ private fun FollowFontScaleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_lg)))
             .clickable { onCheckedChange(!checked) }
             .padding(horizontal = 6.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -491,7 +491,7 @@ private fun FabPlacementSelector(
 @Composable
 private fun AppearancePanel(content: @Composable ColumnScope.() -> Unit) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth(),
