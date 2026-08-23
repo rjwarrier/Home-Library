@@ -5,6 +5,8 @@ import android.text.Html
 import com.mj.homelibrary.data.normalizedIsbn
 import com.mj.homelibrary.data.normalizedIsbn10OrNull
 import com.mj.homelibrary.data.normalizedIsbn13OrNull
+import com.mj.homelibrary.data.toEquivalentIsbn10
+import com.mj.homelibrary.data.toEquivalentIsbn13
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -200,7 +202,46 @@ class BookLookupService(private val context: Context) {
         }
 
     private suspend fun lookupOpenLibrary(isbn: String): BookMetadata? {
-        val url = "https://openlibrary.org/isbn/$isbn.json"
+        val candidates = listOfNotNull(
+            isbn,
+            isbn.toEquivalentIsbn10(),
+            isbn.toEquivalentIsbn13(),
+        ).distinct()
+
+        for (candidate in candidates) {
+            val url = "https://openlibrary.org/isbn/$candidate.json"
+            val meta = parseOpenLibraryDirect(url, candidate)
+            if (meta != null) return meta
+
+            val searchUrl = "https://openlibrary.org/search.json?isbn=$candidate&limit=1"
+            val searchJson = getJson(searchUrl)
+            val doc = searchJson?.optJSONArray("docs")?.optJSONObject(0)
+            if (doc != null) {
+                val title = doc.optString("title").takeIf(String::isNotBlank)
+                if (title != null) {
+                    val coverId = doc.optLong("cover_i").takeIf { it > 0L }
+                    val authors = doc.optJSONArray("author_name").toStringList()
+                    val publishers = doc.optJSONArray("publisher").toStringList()
+                    val year = doc.optInt("first_publish_year").takeIf { it > 0 }
+                    return BookMetadata(
+                        title = title,
+                        subtitle = doc.optString("subtitle").takeIf(String::isNotBlank),
+                        authors = authors,
+                        tags = doc.optJSONArray("subject").toStringList().take(MAX_TAGS),
+                        publisher = publishers.firstOrNull(),
+                        publishedYear = year,
+                        coverUrl = coverId?.let { "https://covers.openlibrary.org/b/id/$it-L.jpg" },
+                        languageCode = doc.optJSONArray("language").toStringList().firstOrNull()?.toAppLanguageCode() ?: "en",
+                        isbn10 = candidate.toEquivalentIsbn10() ?: isbn.normalizedIsbn10OrNull(),
+                        isbn13 = candidate.toEquivalentIsbn13() ?: isbn.normalizedIsbn13OrNull(),
+                    )
+                }
+            }
+        }
+        return null
+    }
+
+    private suspend fun parseOpenLibraryDirect(url: String, isbn: String): BookMetadata? {
         val json = getJson(url) ?: return null
         val title = json.optString("title").takeIf(String::isNotBlank) ?: return null
         val work = json.optJSONArray("works")
@@ -258,8 +299,26 @@ class BookLookupService(private val context: Context) {
     }
 
     private fun lookupGoogleBooks(isbn: String): BookMetadata? {
-        val encoded = URLEncoder.encode("isbn:$isbn", StandardCharsets.UTF_8.name())
-        val json = getJson("https://www.googleapis.com/books/v1/volumes?q=$encoded") ?: return null
+        val candidates = listOfNotNull(
+            isbn,
+            isbn.toEquivalentIsbn10(),
+            isbn.toEquivalentIsbn13(),
+        ).distinct()
+
+        for (candidate in candidates) {
+            val encodedIsbn = URLEncoder.encode("isbn:$candidate", StandardCharsets.UTF_8.name())
+            val meta = parseGoogleBooksVolume("https://www.googleapis.com/books/v1/volumes?q=$encodedIsbn", candidate)
+            if (meta != null) return meta
+
+            val encodedRaw = URLEncoder.encode(candidate, StandardCharsets.UTF_8.name())
+            val metaRaw = parseGoogleBooksVolume("https://www.googleapis.com/books/v1/volumes?q=$encodedRaw", candidate)
+            if (metaRaw != null) return metaRaw
+        }
+        return null
+    }
+
+    private fun parseGoogleBooksVolume(url: String, isbn: String): BookMetadata? {
+        val json = getJson(url) ?: return null
         val item = json.optJSONArray("items")?.optJSONObject(0)?.optJSONObject("volumeInfo") ?: return null
         val title = item.optString("title").takeIf(String::isNotBlank) ?: return null
         val industryIds = item.optJSONArray("industryIdentifiers")

@@ -45,3 +45,37 @@ private fun String.isValidIsbn13(): Boolean {
     val checkDigit = (10 - (sum % 10)) % 10
     return checkDigit == last().digitToInt()
 }
+
+fun String.toEquivalentIsbn10(): String? {
+    val norm = normalizedIsbn()
+    if (norm.length == 10 && norm.isValidIsbn10()) return norm
+    if (norm.length == 13 && norm.startsWith("978") && norm.isValidIsbn13()) {
+        val core = norm.substring(3, 12)
+        val sum = core.mapIndexed { index, c -> c.digitToInt() * (10 - index) }.sum()
+        val remainder = (11 - (sum % 11)) % 11
+        val checkChar = if (remainder == 10) 'X' else remainder.digitToChar()
+        return core + checkChar
+    }
+    return null
+}
+
+fun String.toEquivalentIsbn13(): String? {
+    val norm = normalizedIsbn()
+    if (norm.length == 13 && norm.isValidIsbn13()) return norm
+    if (norm.length == 10 && norm.isValidIsbn10()) {
+        val core = "978" + norm.substring(0, 9)
+        val sum = core.mapIndexed { index, c ->
+            c.digitToInt() * if (index % 2 == 0) 1 else 3
+        }.sum()
+        val checkDigit = (10 - (sum % 10)) % 10
+        return core + checkDigit
+    }
+    return null
+}
+
+fun String.isIndianIsbn(): Boolean {
+    val norm = normalizedIsbn()
+    return norm.startsWith("97881") || norm.startsWith("97893") ||
+        (norm.length == 10 && (norm.startsWith("81") || norm.startsWith("93")))
+}
+

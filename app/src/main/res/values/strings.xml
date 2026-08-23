@@ -477,4 +477,6 @@
     <string name="ocr_lang_delete_confirm">Remove %1$s language pack to free storage?</string>
     <string name="ocr_lang_latin_default">English / Latin</string>
     <string name="ocr_lang_manage_in_settings">Manage language packs</string>
+    <string name="lookup_failed_regional_hint">Regional publisher ISBN detected (%1$s). Most regional Indian books are not indexed in global barcode databases. Tap Scan Cover (OCR) to capture the title and author directly.</string>
+    <string name="action_scan_cover_ocr">Scan Cover (OCR)</string>
 </resources>

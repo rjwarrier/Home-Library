@@ -132,6 +132,7 @@ fun BarcodeScannerSheet(
     onDismiss: () -> Unit,
     onBulkScanned: (List<String>) -> Unit = { it.firstOrNull()?.let(onBarcode) },
     onOcrResult: (OcrBookDetails) -> Unit = {},
+    initialMode: ScannerMode = ScannerMode.BARCODE,
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -140,7 +141,7 @@ fun BarcodeScannerSheet(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
         )
     }
-    var scannerMode by remember { mutableStateOf(ScannerMode.BARCODE) }
+    var scannerMode by remember { mutableStateOf(initialMode) }
     var ocrLanguageCode by remember { mutableStateOf("latin") }
     val installedOcrLangs = remember { OcrLanguageManager.getInstalledLanguages(context) }
     var bulkScan by remember { mutableStateOf(false) }

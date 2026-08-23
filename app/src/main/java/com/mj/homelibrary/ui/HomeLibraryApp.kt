@@ -225,6 +225,7 @@ import com.mj.homelibrary.data.entity.BookEntity
 import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
+import com.mj.homelibrary.data.isIndianIsbn
 import com.mj.homelibrary.data.validIsbnOrNull
 import com.mj.homelibrary.ui.theme.ExpressiveMotion
 import com.mj.homelibrary.ui.theme.expressiveClickable
@@ -283,6 +284,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     var settingsRoute by remember { mutableStateOf(SettingsRoute.Main) }
     var fabExpanded by remember { mutableStateOf(false) }
     var showScanner by remember { mutableStateOf(false) }
+    var scannerInitialMode by remember { mutableStateOf(ScannerMode.BARCODE) }
     var showAddBook by remember { mutableStateOf(false) }
     var manualEntry by remember { mutableStateOf(false) }
     var scannedIsbn by remember { mutableStateOf("") }
@@ -332,7 +334,10 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     }
 
     LaunchedEffect(startInScanMode) {
-        if (startInScanMode) showScanner = true
+        if (startInScanMode) {
+            scannerInitialMode = ScannerMode.BARCODE
+            showScanner = true
+        }
     }
 
     BackHandler(enabled = settingsRoute != SettingsRoute.Main) {
@@ -347,7 +352,18 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
         if (failedIsbn != null && errorRes == R.string.isbn_lookup_failed) {
             LookupFailedDialog(
                 isbn = failedIsbn,
-                onDismiss = viewModel::clearError,
+                onDismiss = {
+                    viewModel.clearError()
+                    scannedIsbn = failedIsbn
+                    manualEntry = true
+                    showAddBook = true
+                },
+                onScanCoverOcr = {
+                    viewModel.clearError()
+                    scannedIsbn = failedIsbn
+                    scannerInitialMode = ScannerMode.COVER_OCR
+                    showScanner = true
+                },
             )
         } else {
             AlertDialog(
@@ -566,6 +582,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
 
     if (showScanner) {
         BarcodeScannerSheet(
+            initialMode = scannerInitialMode,
             onBarcode = { isbn ->
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 openBookForIsbn(isbn)
@@ -582,13 +599,14 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 showScanner = false
                 manualEntry = true
-                scannedIsbn = ocr.rawIsbn.orEmpty()
+                val finalIsbn = ocr.rawIsbn.takeUnless { it.isNullOrBlank() } ?: scannedIsbn
+                scannedIsbn = finalIsbn
                 ocrDraftInitial = BookDraft(
                     title = ocr.title,
                     authors = ocr.authors.joinToString(", "),
                     publisher = ocr.publisher.orEmpty(),
                     publishedYear = ocr.year?.toString().orEmpty(),
-                    isbn = ocr.rawIsbn.orEmpty(),
+                    isbn = finalIsbn,
                     languageCode = LanguageCode.English.code,
                 )
                 showAddBook = true
@@ -6046,8 +6064,11 @@ private fun BulkMoveSheet(
 private fun LookupFailedDialog(
     isbn: String,
     onDismiss: () -> Unit,
+    onScanCoverOcr: () -> Unit,
 ) {
     val context = LocalContext.current
+    val isIndian = remember(isbn) { isbn.isIndianIsbn() }
+
     fun openSearch(url: String) {
         runCatching {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -6062,16 +6083,39 @@ private fun LookupFailedDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Outlined.SearchOff, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
         title = { Text(stringResource(R.string.lookup_failed_title), style = MaterialTheme.typography.headlineSmall) },
-        text = { Text(stringResource(R.string.lookup_failed_body, isbn)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(stringResource(R.string.lookup_failed_body, isbn))
+                if (isIndian) {
+                    androidx.compose.material3.Surface(
+                        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.lookup_failed_regional_hint, isbn),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(10.dp),
+                        )
+                    }
+                }
+            }
+        },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_continue_manual)) }
         },
         confirmButton = {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { openSearch("https://www.goodreads.com/search?q=$isbn") }) {
-                    Text(stringResource(R.string.action_search_goodreads))
+                Button(
+                    onClick = onScanCoverOcr,
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
+                ) {
+                    Icon(Icons.Outlined.AutoStories, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.action_scan_cover_ocr), fontWeight = FontWeight.Bold)
                 }
-                Button(onClick = { openSearch("https://www.google.com/search?q=$isbn%20book") }, shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md))) {
+                OutlinedButton(onClick = { openSearch("https://www.google.com/search?q=$isbn%20book") }) {
                     Text(stringResource(R.string.action_search_google))
                 }
             }
