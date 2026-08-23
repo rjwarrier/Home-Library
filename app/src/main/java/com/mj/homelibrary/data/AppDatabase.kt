@@ -11,14 +11,16 @@ import com.mj.homelibrary.data.dao.BookDao
 import com.mj.homelibrary.data.dao.BorrowerDao
 import com.mj.homelibrary.data.dao.LoanDao
 import com.mj.homelibrary.data.dao.LocationDao
+import com.mj.homelibrary.data.dao.QuoteDao
 import com.mj.homelibrary.data.entity.BookEntity
 import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
+import com.mj.homelibrary.data.entity.QuoteEntity
 
 @Database(
-    entities = [BookEntity::class, LocationEntity::class, LoanEntity::class, BorrowerEntity::class],
-    version = 6,
+    entities = [BookEntity::class, LocationEntity::class, LoanEntity::class, BorrowerEntity::class, QuoteEntity::class],
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -27,6 +29,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun locationDao(): LocationDao
     abstract fun loanDao(): LoanDao
     abstract fun borrowerDao(): BorrowerDao
+    abstract fun quoteDao(): QuoteDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -74,9 +77,26 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `quotes` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`bookId` INTEGER NOT NULL, " +
+                        "`text` TEXT NOT NULL, " +
+                        "`pageNumber` INTEGER, " +
+                        "`note` TEXT, " +
+                        "`createdAtEpochMillis` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`bookId`) REFERENCES `books`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_quotes_bookId` ON `quotes` (`bookId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_quotes_createdAtEpochMillis` ON `quotes` (`createdAtEpochMillis`)")
+            }
+        }
+
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "home-library.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .fallbackToDestructiveMigration(false)
                 .build()
     }

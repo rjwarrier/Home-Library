@@ -31,15 +31,19 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -124,14 +128,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 enum class ScannerMode {
     BARCODE,
     COVER_OCR,
+    SPINE_SCAN,
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BarcodeScannerSheet(
     onBarcode: (String) -> Unit,
     onDismiss: () -> Unit,
     onBulkScanned: (List<String>) -> Unit = { it.firstOrNull()?.let(onBarcode) },
     onOcrResult: (OcrBookDetails) -> Unit = {},
+    onSpinesScanned: (List<String>) -> Unit = {},
     initialMode: ScannerMode = ScannerMode.BARCODE,
 ) {
     val context = LocalContext.current
@@ -151,6 +158,8 @@ fun BarcodeScannerSheet(
     var scanSuccessTrigger by remember { mutableStateOf(false) }
     var isOcrFrozen by remember { mutableStateOf(false) }
     var latestOcrResult by remember { mutableStateOf<OcrBookDetails?>(null) }
+    var detectedSpines by remember { mutableStateOf<List<String>>(emptyList()) }
+    val selectedSpines = remember { mutableStateListOf<String>() }
     val scannedQueue = remember { mutableStateListOf<String>() }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         granted = isGranted
@@ -187,7 +196,7 @@ fun BarcodeScannerSheet(
                         contentDescription = stringResource(R.string.content_description_close),
                     )
 
-                    // Mode Toggle: Barcode vs Cover OCR
+                    // Mode Toggle: Barcode vs Cover OCR vs Spine Shelf Scan
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -209,6 +218,11 @@ fun BarcodeScannerSheet(
                                 label = stringResource(R.string.scanner_mode_ocr),
                                 selected = scannerMode == ScannerMode.COVER_OCR,
                                 onClick = { scannerMode = ScannerMode.COVER_OCR },
+                            )
+                            ScannerModeTab(
+                                label = stringResource(R.string.scanner_mode_spine),
+                                selected = scannerMode == ScannerMode.SPINE_SCAN,
+                                onClick = { scannerMode = ScannerMode.SPINE_SCAN },
                             )
                         }
                     }
@@ -289,6 +303,9 @@ fun BarcodeScannerSheet(
                                 if (!isOcrFrozen) {
                                     latestOcrResult = ocrDetails
                                 }
+                            },
+                            onSpinesDetected = { spines ->
+                                detectedSpines = (spines + detectedSpines).distinct().take(30)
                             },
                             modifier = Modifier
                                 .fillMaxSize()
@@ -411,6 +428,87 @@ fun BarcodeScannerSheet(
                             },
                             fontWeight = FontWeight.Bold,
                         )
+                    }
+                } else if (scannerMode == ScannerMode.SPINE_SCAN) {
+                    // SPINE SCAN REVIEW CARD
+                    Surface(
+                        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_lg)),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    stringResource(R.string.spine_scan_detected_title, detectedSpines.size),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    stringResource(R.string.spine_scan_instruction),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+
+                            if (detectedSpines.isNotEmpty()) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.heightIn(max = 140.dp).verticalScroll(rememberScrollState()),
+                                ) {
+                                    detectedSpines.forEach { spine ->
+                                        val isSelected = spine in selectedSpines
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = {
+                                                if (isSelected) selectedSpines.remove(spine) else selectedSpines.add(spine)
+                                            },
+                                            label = { Text(spine, maxLines = 1, fontSize = 12.sp) },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                        )
+                                    }
+                                }
+
+                                Button(
+                                    onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        val listToAdd = if (selectedSpines.isNotEmpty()) selectedSpines.toList() else detectedSpines
+                                        onSpinesScanned(listToAdd)
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
+                                ) {
+                                    Icon(Icons.Outlined.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    val count = if (selectedSpines.isNotEmpty()) selectedSpines.size else detectedSpines.size
+                                    Text(stringResource(R.string.spine_scan_add_all, count), fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Text(
+                                    stringResource(R.string.spine_scan_empty),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                )
+                            }
+                        }
                     }
                 } else {
                     // COVER OCR MODE CARD
@@ -771,6 +869,7 @@ private fun ScannerViewfinder(
     isOcrFrozen: Boolean,
     onBarcode: (String) -> Unit,
     onOcrDetected: (OcrBookDetails) -> Unit,
+    onSpinesDetected: (List<String>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var tapOffset by remember { mutableStateOf<Offset?>(null) }
@@ -788,6 +887,7 @@ private fun ScannerViewfinder(
             isOcrFrozen = isOcrFrozen,
             onBarcode = onBarcode,
             onOcrDetected = onOcrDetected,
+            onSpinesDetected = onSpinesDetected,
             onTapFocus = { offset ->
                 tapOffset = offset
                 coroutineScope.launch {
@@ -799,7 +899,7 @@ private fun ScannerViewfinder(
         )
 
         ScannerReticle(
-            isOcrMode = scannerMode == ScannerMode.COVER_OCR,
+            isOcrMode = scannerMode == ScannerMode.COVER_OCR || scannerMode == ScannerMode.SPINE_SCAN,
             success = scanSuccess,
             modifier = Modifier
                 .fillMaxSize()
@@ -958,6 +1058,7 @@ private fun CameraScannerPreview(
     isOcrFrozen: Boolean,
     onBarcode: (String) -> Unit,
     onOcrDetected: (OcrBookDetails) -> Unit,
+    onSpinesDetected: (List<String>) -> Unit,
     onTapFocus: (Offset) -> Unit,
     onZoomChange: (Float) -> Unit,
 ) {
@@ -967,6 +1068,7 @@ private fun CameraScannerPreview(
     var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
     val currentOnBarcode by rememberUpdatedState(onBarcode)
     val currentOnOcrDetected by rememberUpdatedState(onOcrDetected)
+    val currentOnSpinesDetected by rememberUpdatedState(onSpinesDetected)
     val currentMode by rememberUpdatedState(scannerMode)
     val currentLang by rememberUpdatedState(ocrLanguageCode)
     val currentFrozen by rememberUpdatedState(isOcrFrozen)
@@ -1061,6 +1163,12 @@ private fun CameraScannerPreview(
                                                 canHandle = scanGate::canHandle,
                                                 onBarcode = currentOnBarcode,
                                             )
+                                        } else if (currentMode == ScannerMode.SPINE_SCAN) {
+                                            processSpineScanImage(
+                                                imageProxy = imageProxy,
+                                                recognizer = textRecognizer,
+                                                onSpinesDetected = currentOnSpinesDetected,
+                                            )
                                         } else {
                                             if (!currentFrozen) {
                                                 if (currentLang == "latin") {
@@ -1147,6 +1255,47 @@ private fun processOcrImage(
             val parsed = CoverOcrParser.parse(visionText)
             if (parsed.title.isNotBlank() || parsed.authors.isNotEmpty()) {
                 onOcrDetected(parsed)
+            }
+        }
+        .addOnCompleteListener {
+            imageProxy.close()
+        }
+}
+
+private var lastSpineExecutionTimestamp = 0L
+
+private fun processSpineScanImage(
+    imageProxy: ImageProxy,
+    recognizer: com.google.mlkit.vision.text.TextRecognizer,
+    onSpinesDetected: (List<String>) -> Unit,
+) {
+    val mediaImage = imageProxy.image
+    val now = System.currentTimeMillis()
+    if (mediaImage == null || now - lastSpineExecutionTimestamp < 400L) {
+        imageProxy.close()
+        return
+    }
+    lastSpineExecutionTimestamp = now
+    val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+    recognizer.process(image)
+        .addOnSuccessListener { visionText ->
+            val detectedSpines = mutableListOf<String>()
+            for (block in visionText.textBlocks) {
+                val lines = block.lines.map { it.text.trim() }.filter { line ->
+                    line.length >= 3 &&
+                        !line.matches(Regex("^[0-9\\-\\s]+$")) &&
+                        !line.contains("ISBN", ignoreCase = true) &&
+                        !line.contains("PRICE", ignoreCase = true)
+                }
+                if (lines.isNotEmpty()) {
+                    val candidate = lines.joinToString(" ")
+                    if (candidate.length >= 4 && candidate !in detectedSpines) {
+                        detectedSpines.add(candidate)
+                    }
+                }
+            }
+            if (detectedSpines.isNotEmpty()) {
+                onSpinesDetected(detectedSpines.take(20))
             }
         }
         .addOnCompleteListener {

@@ -488,6 +488,43 @@
     <string name="ocr_lang_delete_confirm">Remove %1$s language pack to free storage?</string>
     <string name="ocr_lang_latin_default">English / Latin</string>
     <string name="ocr_lang_manage_in_settings">Manage language packs</string>
-    <string name="lookup_failed_regional_hint">Regional publisher ISBN detected (%1$s). Most regional Indian books are not indexed in global barcode databases. Tap Scan Cover (OCR) to capture the title and author directly.</string>
+    <string name="action_whatsapp_reminder">WhatsApp reminder</string>
+    <string name="whatsapp_reminder_template">Hi %1$s! Hope you\'re enjoying reading \"%2$s\"! 📚 Just checking in from my home library. Let me know whenever you\'re ready to return it. Thanks!</string>
+
+    <string name="action_share_book_card">Share Book Card</string>
+    <string name="share_book_card">Share Book Card</string>
+    <string name="share_book_card_title">Share aesthetic book card</string>
+    <string name="share_book_card_subtitle">Card generated for story or status sharing</string>
+    <string name="library_seal_text">Granthapura • Home Library</string>
+
+    <string name="section_quotes">Quotes &amp; Excerpts</string>
+    <string name="quotes_section_title">Quotes &amp; Excerpts</string>
+    <string name="quotes_empty_title">No quotes saved yet</string>
+    <string name="quotes_empty_subtitle">Capture memorable excerpts and lines from pages while reading.</string>
+    <string name="action_add_quote">Add quote</string>
+    <string name="action_scan_page_ocr">Scan page (OCR)</string>
+    <string name="action_capture_quote_ocr">Scan page (OCR)</string>
+    <string name="quote_page_badge">p. %1$d</string>
+    <string name="quote_page_label">Page %1$d</string>
+    <string name="quote_empty_state">No quotes saved yet. Capture memorable lines from pages while reading.</string>
+    <string name="quote_hint_text">Enter memorable quote or excerpt…</string>
+    <string name="dialog_add_quote_title">Add Quote / Highlight</string>
+    <string name="field_quote_text">Quote or excerpt</string>
+    <string name="field_quote_page">Page number</string>
+    <string name="field_quote_note">Reflection / Note</string>
+    <string name="quote_page_number">Page number</string>
+    <string name="quote_note">Reflection / Note (optional)</string>
+    <string name="action_save_quote">Save quote</string>
+    <string name="quote_copied">Quote copied to clipboard</string>
+    <string name="action_copy_quote">Copy</string>
+    <string name="action_delete_quote">Delete quote</string>
+
+    <string name="lookup_failed_regional_hint">Regional Indian publications may not always be indexed in global ISBN databases. You can scan the book cover with OCR or enter details manually.</string>
     <string name="action_scan_cover_ocr">Scan Cover (OCR)</string>
+
+    <string name="scanner_mode_spine">Spine Shelf Scan</string>
+    <string name="spine_scan_instruction">Align camera along shelf to detect multiple book spines</string>
+    <string name="spine_scan_detected_title">%1$d Books Detected on Shelf</string>
+    <string name="spine_scan_add_all">Add Selected (%1$d)</string>
+    <string name="spine_scan_empty">No book spines detected yet. Keep camera steady along bookshelf.</string>
 </resources>

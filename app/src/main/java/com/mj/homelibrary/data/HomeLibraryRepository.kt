@@ -8,10 +8,12 @@ import com.mj.homelibrary.data.dao.BookDao
 import com.mj.homelibrary.data.dao.BorrowerDao
 import com.mj.homelibrary.data.dao.LoanDao
 import com.mj.homelibrary.data.dao.LocationDao
+import com.mj.homelibrary.data.dao.QuoteDao
 import com.mj.homelibrary.data.entity.BookEntity
 import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
+import com.mj.homelibrary.data.entity.QuoteEntity
 import com.mj.homelibrary.data.remote.BookLookupService
 import com.mj.homelibrary.data.remote.BookMetadata
 import com.mj.homelibrary.worker.LoanReminderWorker
@@ -23,6 +25,7 @@ class HomeLibraryRepository(
     private val locationDao: LocationDao,
     private val loanDao: LoanDao,
     private val borrowerDao: BorrowerDao,
+    private val quoteDao: QuoteDao,
     private val lookupService: BookLookupService,
     private val backupRepository: BackupRepository,
     private val coverCache: CoverCache,
@@ -31,6 +34,23 @@ class HomeLibraryRepository(
     val locations: Flow<List<LocationEntity>> = locationDao.observeLocations()
     val loans: Flow<List<LoanEntity>> = loanDao.observeLoans()
     val borrowers: Flow<List<BorrowerEntity>> = borrowerDao.observeBorrowers()
+    val allQuotes: Flow<List<QuoteEntity>> = quoteDao.observeAllQuotes()
+
+    fun observeQuotesForBook(bookId: Long): Flow<List<QuoteEntity>> = quoteDao.observeQuotesForBook(bookId)
+
+    suspend fun getQuotesForBook(bookId: Long): List<QuoteEntity> = quoteDao.getQuotesForBook(bookId)
+
+    suspend fun addQuote(bookId: Long, text: String, pageNumber: Int?, note: String?): Long =
+        quoteDao.insert(
+            QuoteEntity(
+                bookId = bookId,
+                text = text.trim(),
+                pageNumber = pageNumber,
+                note = note?.trim()?.takeIf(String::isNotBlank),
+            ),
+        )
+
+    suspend fun deleteQuote(quoteId: Long) = quoteDao.deleteById(quoteId)
 
     suspend fun addBorrower(name: String, phone: String?, relation: String?): Long =
         borrowerDao.insert(

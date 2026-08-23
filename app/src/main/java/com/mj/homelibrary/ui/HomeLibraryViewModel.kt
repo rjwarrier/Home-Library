@@ -23,6 +23,7 @@ import com.mj.homelibrary.data.entity.BookEntity
 import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
+import com.mj.homelibrary.data.entity.QuoteEntity
 import com.mj.homelibrary.data.normalizedIsbn
 import com.mj.homelibrary.data.normalizedIsbn10OrNull
 import com.mj.homelibrary.data.normalizedIsbn13OrNull
@@ -96,7 +97,7 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
         )
     }
 
-    private val persistentState = combine(catalogData, repository.borrowers, filters) { catalog, borrowers, filters ->
+    private val persistentState = combine(catalogData, repository.borrowers, repository.allQuotes, filters) { catalog, borrowers, quotes, filters ->
         val normalizedQuery = filters.query.searchKey()
         val visibleItems = catalog.allItems.asSequence()
             .filter { item ->
@@ -117,6 +118,8 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
             loans = catalog.loans,
             activeLoans = catalog.activeLoans,
             borrowers = borrowers,
+            quotes = quotes,
+            quotesByBookId = quotes.groupBy { it.bookId },
             filters = filters,
             stats = catalog.stats,
             itemByBookId = catalog.itemByBookId,
@@ -339,7 +342,7 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
 
     fun removeSubGenre(mainGenre: String, name: String) = librarySettingsRepository.removeSubGenre(mainGenre, name)
 
-    fun addBook(draft: BookDraft, onSaved: () -> Unit) {
+    fun addBook(draft: BookDraft, onSaved: () -> Unit = {}) {
         if (draft.title.isBlank()) {
             transient.update { it.copy(errorRes = R.string.error_title_required) }
             return
@@ -396,6 +399,20 @@ class HomeLibraryViewModel(application: Application) : AndroidViewModel(applicat
     fun updateBookRating(bookId: Long, rating: Float) {
         viewModelScope.launch {
             repository.updateBookRating(bookId, rating)
+        }
+    }
+
+    fun addQuote(bookId: Long, text: String, pageNumber: Int?, note: String?, onSaved: () -> Unit = {}) {
+        if (text.isBlank()) return
+        viewModelScope.launch {
+            repository.addQuote(bookId, text, pageNumber, note)
+            onSaved()
+        }
+    }
+
+    fun deleteQuote(quoteId: Long) {
+        viewModelScope.launch {
+            repository.deleteQuote(quoteId)
         }
     }
 
@@ -551,6 +568,8 @@ data class HomeLibraryUiState(
     val loans: List<LoanEntity> = emptyList(),
     val activeLoans: List<LoanEntity> = emptyList(),
     val borrowers: List<BorrowerEntity> = emptyList(),
+    val quotes: List<QuoteEntity> = emptyList(),
+    val quotesByBookId: Map<Long, List<QuoteEntity>> = emptyMap(),
     val filters: LibraryFilters = LibraryFilters(),
     val transient: TransientState = TransientState(),
     val stats: LibraryStats = LibraryStats(),

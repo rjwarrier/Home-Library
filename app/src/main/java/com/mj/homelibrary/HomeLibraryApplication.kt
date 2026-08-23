@@ -24,6 +24,7 @@ class HomeLibraryApplication : Application(), ImageLoaderFactory {
             locationDao = database.locationDao(),
             loanDao = database.loanDao(),
             borrowerDao = database.borrowerDao(),
+            quoteDao = database.quoteDao(),
             lookupService = BookLookupService(this),
             backupRepository = BackupRepository(this, database),
             coverCache = CoverCache(this),

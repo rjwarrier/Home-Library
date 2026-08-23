@@ -77,6 +77,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Message
 import androidx.compose.material.icons.outlined.AssignmentReturn
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.BarChart
@@ -107,6 +108,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Outbound
+import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.PersonAdd
@@ -117,6 +119,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Sort
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Translate
@@ -149,6 +152,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -225,6 +229,7 @@ import com.mj.homelibrary.data.entity.BookEntity
 import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
+import com.mj.homelibrary.data.entity.QuoteEntity
 import com.mj.homelibrary.data.IndicUtils
 import com.mj.homelibrary.data.isIndianIsbn
 import com.mj.homelibrary.data.validIsbnOrNull
@@ -307,6 +312,8 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
     var showBulkMoveSheet by remember { mutableStateOf(false) }
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     fun openBookForIsbn(isbn: String) {
         val existingBook = isbn.validIsbnOrNull()?.let(state.bookByIsbn::get)
@@ -612,6 +619,19 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                 )
                 showAddBook = true
             },
+            onSpinesScanned = { spines ->
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                showScanner = false
+                if (spines.size == 1) {
+                    manualEntry = true
+                    ocrDraftInitial = BookDraft(title = spines.first(), languageCode = LanguageCode.English.code)
+                    showAddBook = true
+                } else if (spines.isNotEmpty()) {
+                    spines.forEach { title ->
+                        viewModel.addBook(BookDraft(title = title, languageCode = LanguageCode.English.code))
+                    }
+                }
+            },
             onDismiss = { showScanner = false },
         )
     }
@@ -751,6 +771,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
         BookDetailSheet(
             item = item,
             loans = state.loansByBookId[item.book.id].orEmpty(),
+            quotes = state.quotesByBookId[item.book.id].orEmpty(),
             onDismiss = { selectedBook = null },
             onLoan = { loanFlowBook = item.book },
             onReturn = { returnLoan = it },
@@ -759,6 +780,13 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
             onMove = { moveBook = item },
             onDelete = { deleteBook = item.book },
             onRate = { rating -> viewModel.updateBookRating(item.book.id, rating) },
+            onAddQuote = { text, page, note -> viewModel.addQuote(item.book.id, text, page, note) },
+            onDeleteQuote = viewModel::deleteQuote,
+            onShareCard = { quote ->
+                coroutineScope.launch {
+                    BookCardShareUtils.shareBookCard(context, item.book, quote?.text)
+                }
+            },
         )
     }
 
@@ -2121,15 +2149,25 @@ private fun BorrowerCard(
                     Text(borrower, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
                     Text(stringResource(R.string.loan_books_out, loans.size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (borrowerContact != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(
                         onClick = {
-                            runCatching {
-                                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$borrowerContact")))
-                            }
+                            val firstBook = loans.firstOrNull()?.let { bookById[it.bookId]?.title } ?: "books"
+                            sendWhatsAppReminder(context, borrower, borrowerContact, firstBook)
                         },
                     ) {
-                        Icon(Icons.Outlined.Call, contentDescription = stringResource(R.string.action_call_borrower), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.AutoMirrored.Outlined.Message, contentDescription = stringResource(R.string.action_whatsapp_reminder), tint = MaterialTheme.colorScheme.primary)
+                    }
+                    if (borrowerContact != null) {
+                        IconButton(
+                            onClick = {
+                                runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$borrowerContact")))
+                                }
+                            },
+                        ) {
+                            Icon(Icons.Outlined.Call, contentDescription = stringResource(R.string.action_call_borrower), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
@@ -2191,11 +2229,51 @@ private fun LoanBookRow(
                 Text(item.book.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 DueChip(item = item, dueText = loan.expectedReturnDateEpochMillis.displayDate(context))
             }
+            IconButton(
+                onClick = {
+                    sendWhatsAppReminder(context, loan.borrowerName, loan.borrowerContact, item.book.title)
+                },
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Outlined.Message,
+                    contentDescription = stringResource(R.string.action_whatsapp_reminder),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
             OutlinedButton(onClick = { onReturn(loan) }, shape = RoundedCornerShape(dimensionResource(R.dimen.corner_control)), contentPadding = PaddingValues(horizontal = 12.dp)) {
                 Text(stringResource(R.string.action_return))
             }
         }
     }
+}
+
+private fun sendWhatsAppReminder(
+    context: Context,
+    borrowerName: String,
+    contact: String?,
+    bookTitle: String,
+) {
+    val message = context.getString(R.string.whatsapp_reminder_template, borrowerName, bookTitle)
+    val cleanPhone = contact?.filter { it.isDigit() || it == '+' }
+    val uri = if (!cleanPhone.isNullOrBlank()) {
+        Uri.parse("https://api.whatsapp.com/send?phone=$cleanPhone&text=${Uri.encode(message)}")
+    } else {
+        null
+    }
+    val directIntent = uri?.let { Intent(Intent.ACTION_VIEW, it) }
+    if (directIntent != null) {
+        runCatching {
+            context.startActivity(directIntent)
+            return
+        }
+    }
+    val fallbackIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, message)
+    }
+    context.startActivity(Intent.createChooser(fallbackIntent, context.getString(R.string.action_whatsapp_reminder)))
 }
 
 @Composable
@@ -5328,6 +5406,7 @@ private fun String.withCommaSuggestion(suggestion: String): String {
 private fun BookDetailSheet(
     item: BookListItem,
     loans: List<LoanEntity>,
+    quotes: List<QuoteEntity> = emptyList(),
     onDismiss: () -> Unit,
     onLoan: () -> Unit,
     onReturn: (LoanEntity) -> Unit,
@@ -5336,9 +5415,14 @@ private fun BookDetailSheet(
     onMove: () -> Unit,
     onDelete: () -> Unit,
     onRate: (Float) -> Unit,
+    onAddQuote: (String, Int?, String?) -> Unit = { _, _, _ -> },
+    onDeleteQuote: (Long) -> Unit = {},
+    onShareCard: (QuoteEntity?) -> Unit = {},
 ) {
     val context = LocalContext.current
     val palette = coverPaletteFor(item.book)
+    var showAddQuoteDialog by remember { mutableStateOf(false) }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(topStart = dimensionResource(R.dimen.corner_sheet), topEnd = dimensionResource(R.dimen.corner_sheet)),
@@ -5373,6 +5457,15 @@ private fun BookDetailSheet(
                         Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.content_description_close))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        IconButton(
+                            onClick = { onShareCard(null) },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                                contentColor = MaterialTheme.colorScheme.onSurface,
+                            ),
+                        ) {
+                            Icon(Icons.Outlined.Share, contentDescription = stringResource(R.string.share_book_card))
+                        }
                         IconButton(
                             onClick = {
                                 onDismiss()
@@ -5464,6 +5557,55 @@ private fun BookDetailSheet(
                 item.book.notes?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, lineHeight = 23.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+
+                // Quotes & Highlights Section
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        stringResource(R.string.quotes_section_title).uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        letterSpacing = 1.4.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = { showAddQuoteDialog = true }) {
+                        Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(stringResource(R.string.action_add_quote), style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+
+                if (quotes.isEmpty()) {
+                    OutlinedCard(
+                        onClick = { showAddQuoteDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(Icons.Outlined.FormatQuote, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Column {
+                                Text(stringResource(R.string.quotes_empty_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+                                Text(stringResource(R.string.quotes_empty_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                } else {
+                    quotes.forEach { quote ->
+                        QuoteItemCard(
+                            quote = quote,
+                            onShareCard = { onShareCard(quote) },
+                            onDelete = { onDeleteQuote(quote.id) },
+                        )
+                    }
+                }
+
                 Text(stringResource(R.string.loan_history).uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.4.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 loans.forEach { loan ->
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -5474,6 +5616,168 @@ private fun BookDetailSheet(
                 }
             }
         }
+    }
+
+    if (showAddQuoteDialog) {
+        AddQuoteDialog(
+            onDismiss = { showAddQuoteDialog = false },
+            onSave = { text, page, note ->
+                onAddQuote(text, page, note)
+                showAddQuoteDialog = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun QuoteItemCard(
+    quote: QuoteEntity,
+    onShareCard: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (quote.pageNumber != null) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ) {
+                        Text(
+                            stringResource(R.string.quote_page_badge, quote.pageNumber),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
+                } else {
+                    Spacer(Modifier.width(1.dp))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = onShareCard, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Outlined.Share, contentDescription = stringResource(R.string.share_book_card), modifier = Modifier.size(16.dp))
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.action_delete), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            Text(
+                "“${quote.text}”",
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Serif,
+                lineHeight = 22.sp,
+            )
+            quote.note?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddQuoteDialog(
+    onDismiss: () -> Unit,
+    onSave: (String, Int?, String?) -> Unit,
+) {
+    var quoteText by remember { mutableStateOf("") }
+    var pageNumber by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    var showOcrScanner by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.dialog_add_quote_title), style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = quoteText,
+                    onValueChange = { quoteText = it },
+                    label = { Text(stringResource(R.string.field_quote_text)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 100.dp),
+                    minLines = 3,
+                    maxLines = 6,
+                )
+
+                OutlinedButton(
+                    onClick = { showOcrScanner = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.corner_md)),
+                ) {
+                    Icon(Icons.Outlined.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.action_scan_page_ocr))
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = pageNumber,
+                        onValueChange = { pageNumber = it.filter(Char::isDigit) },
+                        label = { Text(stringResource(R.string.field_quote_page)) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = { note = it },
+                        label = { Text(stringResource(R.string.field_quote_note)) },
+                        modifier = Modifier.weight(2f),
+                        singleLine = true,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(quoteText, pageNumber.toIntOrNull(), note.takeIf(String::isNotBlank)) },
+                enabled = quoteText.isNotBlank(),
+            ) {
+                Text(stringResource(R.string.action_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
+    )
+
+    if (showOcrScanner) {
+        BarcodeScannerSheet(
+            initialMode = ScannerMode.COVER_OCR,
+            onBarcode = {},
+            onOcrResult = { ocr ->
+                val lines = buildList {
+                    if (ocr.title.isNotBlank()) add(ocr.title)
+                    if (ocr.authors.isNotEmpty()) addAll(ocr.authors)
+                }
+                quoteText = lines.joinToString(" ")
+                showOcrScanner = false
+            },
+            onDismiss = { showOcrScanner = false },
+        )
     }
 }
 
