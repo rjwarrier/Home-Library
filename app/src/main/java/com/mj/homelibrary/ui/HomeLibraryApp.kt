@@ -225,6 +225,7 @@ import com.mj.homelibrary.data.entity.BookEntity
 import com.mj.homelibrary.data.entity.BorrowerEntity
 import com.mj.homelibrary.data.entity.LoanEntity
 import com.mj.homelibrary.data.entity.LocationEntity
+import com.mj.homelibrary.data.IndicUtils
 import com.mj.homelibrary.data.isIndianIsbn
 import com.mj.homelibrary.data.validIsbnOrNull
 import com.mj.homelibrary.ui.theme.ExpressiveMotion
@@ -4200,7 +4201,18 @@ private fun AddBookSheet(
                 }
             }
             Text(stringResource(R.string.section_metadata).uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.primary)
-            TextFieldLine(draft.title, { draft = draft.copy(title = it) }, R.string.field_title)
+            TextFieldLine(
+                value = draft.title,
+                onValueChange = { newTitle ->
+                    val detected = IndicUtils.detectIndicLanguage(newTitle)
+                    draft = if (detected != null && (draft.languageCode == "en" || draft.languageCode == "other")) {
+                        draft.copy(title = newTitle, languageCode = detected.code)
+                    } else {
+                        draft.copy(title = newTitle)
+                    }
+                },
+                label = R.string.field_title,
+            )
             SuggestedTextFieldLine(
                 value = draft.authors,
                 onValueChange = { draft = draft.copy(authors = it) },
@@ -4240,15 +4252,23 @@ private fun AddBookSheet(
                 suggestions = seriesSuggestions,
                 label = R.string.field_series_name,
             )
-            TextFieldLine(draft.publisher, { draft = draft.copy(publisher = it) }, R.string.field_publisher)
+            SuggestedTextFieldLine(
+                value = draft.publisher,
+                onValueChange = { draft = draft.copy(publisher = it) },
+                suggestions = IndicUtils.popularIndicPublishers,
+                label = R.string.field_publisher,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextFieldLine(draft.publishedYear, { draft = draft.copy(publishedYear = it) }, R.string.field_published_year, Modifier.weight(1f))
                 TextFieldLine(draft.pageCount, { draft = draft.copy(pageCount = it) }, R.string.field_pages, Modifier.weight(1f))
             }
+            val allTagSuggestions = remember(tagSuggestions) {
+                (tagSuggestions + IndicUtils.popularIndicGenres).distinct()
+            }
             SuggestedTextFieldLine(
                 value = draft.tags,
                 onValueChange = { draft = draft.copy(tags = it) },
-                suggestions = tagSuggestions,
+                suggestions = allTagSuggestions,
                 label = R.string.field_tags,
                 commaAppend = true,
             )
