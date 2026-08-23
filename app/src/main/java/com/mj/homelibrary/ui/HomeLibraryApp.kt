@@ -1518,7 +1518,7 @@ private fun MorphChip(selected: Boolean, label: String, trailing: ImageVector? =
         trailingIcon = trailing?.let {
             { Icon(it, contentDescription = null, modifier = Modifier.size(17.dp)) }
         },
-        shape = RoundedCornerShape(cornerRadius),
+        shape = RoundedCornerShape(cornerRadius.coerceAtLeast(0.dp)),
     )
 }
 
@@ -2989,7 +2989,7 @@ private fun PublicationDecadesCard(decades: Map<String, Int>) {
                         Box(
                             modifier = Modifier
                                 .width(20.dp)
-                                .height(animatedHeight)
+                                .height(animatedHeight.coerceAtLeast(0.dp))
                                 .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
                                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
                         )
@@ -3846,8 +3846,8 @@ private fun GranthapuraFabMenu(
             modifier = Modifier
                 .size(dimensionResource(R.dimen.fab_size))
                 .scale(fabPressScale)
-                .shadow(10.dp, RoundedCornerShape(fabCornerRadius)),
-            shape = RoundedCornerShape(fabCornerRadius),
+                .shadow(10.dp, RoundedCornerShape(fabCornerRadius.coerceAtLeast(0.dp))),
+            shape = RoundedCornerShape(fabCornerRadius.coerceAtLeast(0.dp)),
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ) {
@@ -3898,8 +3898,8 @@ private fun LoansFabMenu(
             modifier = Modifier
                 .size(dimensionResource(R.dimen.fab_size))
                 .scale(fabPressScale)
-                .shadow(10.dp, RoundedCornerShape(fabCornerRadius)),
-            shape = RoundedCornerShape(fabCornerRadius),
+                .shadow(10.dp, RoundedCornerShape(fabCornerRadius.coerceAtLeast(0.dp))),
+            shape = RoundedCornerShape(fabCornerRadius.coerceAtLeast(0.dp)),
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ) {

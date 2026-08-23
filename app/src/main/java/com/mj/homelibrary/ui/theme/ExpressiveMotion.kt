@@ -68,8 +68,8 @@ object ExpressiveMotion {
     )
 
     val MorphDpSpring: AnimationSpec<Dp> = spring(
-        dampingRatio = 0.7f,
-        stiffness = 400f
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessMediumLow,
     )
 
     // --- Standard Duration Constants ---
