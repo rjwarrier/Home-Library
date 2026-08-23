@@ -39,9 +39,9 @@ androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "core" }
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
 junit = { module = "junit:junit", version.ref = "junit" }
-mlkit-barcode-scanning = { module = "com.google.mlkit:barcode-scanning", version.ref = "mlkitBarcode" }
-mlkit-text-recognition = { module = "com.google.mlkit:text-recognition", version.ref = "mlkitText" }
-tesseract4android = { module = "cz.adaptech.tesseract4android:tesseract4android", version = "4.7.0" }
+mlkit-barcode-scanning = { module = "com.google.android.gms:play-services-mlkit-barcode-scanning", version = "18.3.1" }
+mlkit-text-recognition = { module = "com.google.android.gms:play-services-mlkit-text-recognition", version = "19.0.1" }
+tesseract4android = { module = "cz.adaptech.tesseract4android:tesseract4android", version = "4.8.0" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
