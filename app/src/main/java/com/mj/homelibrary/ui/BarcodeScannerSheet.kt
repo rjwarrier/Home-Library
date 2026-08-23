@@ -3,6 +3,8 @@ package com.mj.homelibrary.ui
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -1314,17 +1316,26 @@ private fun processTesseractImage(
     onOcrDetected: (OcrBookDetails) -> Unit,
 ) {
     val now = System.currentTimeMillis()
-    if (now - lastOcrExecutionTimestamp < 600L) {
+    if (now - lastOcrExecutionTimestamp < 500L) {
         imageProxy.close()
         return
     }
     lastOcrExecutionTimestamp = now
 
-    val bitmap = imageProxy.toBitmap()
+    val rotation = imageProxy.imageInfo.rotationDegrees
+    val rawBitmap = imageProxy.toBitmap()
     imageProxy.close()
-    if (bitmap != null) {
+
+    if (rawBitmap != null) {
+        val rotatedBitmap = if (rotation != 0) {
+            val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+            Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
+        } else {
+            rawBitmap
+        }
+
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
-            val parsed = OcrLanguageManager.recognizeBitmap(context, bitmap, langCode)
+            val parsed = OcrLanguageManager.recognizeBitmap(context, rotatedBitmap, langCode)
             if (parsed.title.isNotBlank() || parsed.authors.isNotEmpty()) {
                 onOcrDetected(parsed)
             }
