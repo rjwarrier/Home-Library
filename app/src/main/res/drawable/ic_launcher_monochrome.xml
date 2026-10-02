@@ -9,13 +9,13 @@
         android:translateX="5.16"
         android:translateY="4.58">
         <path
-            android:strokeColor="#4A7041"
+            android:strokeColor="#000000"
             android:strokeWidth="64"
             android:strokeLineCap="round"
             android:strokeLineJoin="round"
             android:pathData="M236,474L512,244L788,474" />
         <path
-            android:fillColor="#4A7041"
+            android:fillColor="#000000"
             android:fillType="evenOdd"
             android:pathData="M316,506H408A24,24 0 0 1 432,530V800A24,24 0 0 1 408,824H316A24,24 0 0 1 292,800V530A24,24 0 0 1 316,506ZM472,546H552A24,24 0 0 1 576,570V800A24,24 0 0 1 552,824H472A24,24 0 0 1 448,800V570A24,24 0 0 1 472,546ZM616,506H708A24,24 0 0 1 732,530V800A24,24 0 0 1 708,824H616A24,24 0 0 1 592,800V530A24,24 0 0 1 616,506ZM336,566H388A14,14 0 0 1 402,580V580A14,14 0 0 1 388,594H336A14,14 0 0 1 322,580V580A14,14 0 0 1 336,566ZM490,736H534A14,14 0 0 1 548,750V750A14,14 0 0 1 534,764H490A14,14 0 0 1 476,750V750A14,14 0 0 1 490,736ZM636,566H688A14,14 0 0 1 702,580V580A14,14 0 0 1 688,594H636A14,14 0 0 1 622,580V580A14,14 0 0 1 636,566ZM636,610H688A14,14 0 0 1 702,624V624A14,14 0 0 1 688,638H636A14,14 0 0 1 622,624V624A14,14 0 0 1 636,610Z" />
     </group>
