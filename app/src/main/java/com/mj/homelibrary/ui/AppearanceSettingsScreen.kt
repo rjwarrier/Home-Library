@@ -1,72 +1,46 @@
 package com.mj.homelibrary.ui
 
-import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import com.mj.homelibrary.ui.theme.ExpressiveMotion
-import com.mj.homelibrary.ui.theme.expressiveClickable
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.SettingsBrightness
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.mj.homelibrary.R
 import com.mj.homelibrary.data.AppFontFamily
 import com.mj.homelibrary.data.AppearanceSettings
@@ -76,7 +50,6 @@ import com.mj.homelibrary.data.FabPlacement
 import com.mj.homelibrary.data.FontScalePreference
 import com.mj.homelibrary.data.ThemeColorIntensity
 import com.mj.homelibrary.data.ThemePreference
-import kotlin.math.roundToInt
 
 @Composable
 fun AppearanceSettingsScreen(
@@ -92,451 +65,211 @@ fun AppearanceSettingsScreen(
     onFollowUiFontScaleChanged: (Boolean) -> Unit,
     onFabPlacementSelected: (FabPlacement) -> Unit,
 ) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = dimensionResource(R.dimen.space_screen)),
-        contentPadding = PaddingValues(bottom = dimensionResource(R.dimen.space_2xl)),
-        verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_lg)),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+    SettingsPage(titleRes = R.string.settings_appearance, onBack = onBack) {
         item {
-            AppearanceHeader(onBack = onBack)
-        }
-        item {
-            AppearanceSectionLabel(R.string.settings_theme)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                ThemePreference.entries.forEach { theme ->
-                    ThemeModeCard(
-                        modifier = Modifier.weight(1f),
-                        themePreference = theme,
-                        selected = settings.themePreference == theme,
-                        onClick = { onThemeSelected(theme) },
-                    )
+            SettingsGroup(label = stringResource(R.string.settings_theme)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ThemePreference.entries.chunked(2).forEach { rowItems ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            rowItems.forEach { theme ->
+                                ChoiceTile(
+                                    modifier = Modifier.weight(1f),
+                                    icon = theme.icon(),
+                                    label = theme.label(),
+                                    selected = settings.themePreference == theme,
+                                    onClick = { onThemeSelected(theme) },
+                                )
+                            }
+                            if (rowItems.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
                 }
             }
         }
         item {
-            AppearanceSectionLabel(R.string.settings_colors_label)
-            ColorSourceSelector(
-                selected = settings.colorSource,
-                onSelected = onColorSourceSelected,
-            )
+            SettingsGroup(label = stringResource(R.string.settings_colors_label)) {
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    ColorSource.entries.forEachIndexed { index, source ->
+                        SegmentedButton(
+                            selected = source == settings.colorSource,
+                            onClick = { onColorSourceSelected(source) },
+                            shape = SegmentedButtonDefaults.itemShape(index, ColorSource.entries.size),
+                        ) { Text(source.label(), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
+                }
+                SettingsDivider()
+                SettingsSliderRow(
+                    title = stringResource(R.string.settings_color_intensity_title),
+                    valueLabel = settings.themeColorIntensity.label(),
+                    value = ThemeColorIntensity.entries.indexOf(settings.themeColorIntensity).toFloat(),
+                    valueRange = 0f..ThemeColorIntensity.entries.lastIndex.toFloat(),
+                    steps = (ThemeColorIntensity.entries.size - 2).coerceAtLeast(0),
+                    onValueChange = { onThemeColorIntensitySelected(ThemeColorIntensity.entries[it.toInt().coerceIn(ThemeColorIntensity.entries.indices)]) },
+                )
+                SettingsDivider()
+                SettingsSliderRow(
+                    title = stringResource(R.string.settings_background_tint_title),
+                    valueLabel = settings.backgroundTintLevel.label(),
+                    value = BackgroundTintLevel.entries.indexOf(settings.backgroundTintLevel).toFloat(),
+                    valueRange = 0f..BackgroundTintLevel.entries.lastIndex.toFloat(),
+                    steps = (BackgroundTintLevel.entries.size - 2).coerceAtLeast(0),
+                    onValueChange = { onBackgroundTintLevelSelected(BackgroundTintLevel.entries[it.toInt().coerceIn(BackgroundTintLevel.entries.indices)]) },
+                )
+            }
         }
         item {
-            LabeledDiscreteSlider(
-                titleRes = R.string.settings_color_intensity_title,
-                selectedLabel = settings.themeColorIntensity.label(),
-                labels = ThemeColorIntensity.entries.map { it.label() },
-                selectedIndex = ThemeColorIntensity.entries.indexOf(settings.themeColorIntensity),
-                onSelectedIndex = { onThemeColorIntensitySelected(ThemeColorIntensity.entries[it]) },
-            )
-        }
-        item {
-            LabeledDiscreteSlider(
-                titleRes = R.string.settings_background_tint_title,
-                selectedLabel = settings.backgroundTintLevel.label(),
-                labels = BackgroundTintLevel.entries.map { it.label() },
-                selectedIndex = BackgroundTintLevel.entries.indexOf(settings.backgroundTintLevel),
-                onSelectedIndex = { onBackgroundTintLevelSelected(BackgroundTintLevel.entries[it]) },
-            )
-        }
-        item {
-            AppearanceSectionLabel(R.string.settings_font)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                AppFontFamily.entries.forEach { fontFamily ->
-                    FontFamilyCard(
-                        modifier = Modifier.weight(1f),
-                        fontFamily = fontFamily,
-                        selected = settings.appFontFamily == fontFamily,
-                        onClick = { onFontFamilySelected(fontFamily) },
-                    )
+            SettingsGroup(label = stringResource(R.string.settings_font)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AppFontFamily.entries.forEach { fontFamily ->
+                        FontFamilyTile(
+                            modifier = Modifier.weight(1f),
+                            fontFamily = fontFamily,
+                            selected = settings.appFontFamily == fontFamily,
+                            onClick = { onFontFamilySelected(fontFamily) },
+                        )
+                    }
+                }
+                SettingsDivider()
+                SettingsSliderRow(
+                    title = stringResource(R.string.settings_ui_font_size_label),
+                    valueLabel = settings.fontScalePreference.label(),
+                    value = FontScalePreference.entries.indexOf(settings.fontScalePreference).toFloat(),
+                    valueRange = 0f..FontScalePreference.entries.lastIndex.toFloat(),
+                    steps = (FontScalePreference.entries.size - 2).coerceAtLeast(0),
+                    onValueChange = { onFontScaleSelected(FontScalePreference.entries[it.toInt().coerceIn(FontScalePreference.entries.indices)]) },
+                )
+                SettingsDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.settings_follow_ui_font_scale_label),
+                    checked = settings.followUiFontScale,
+                    onCheckedChange = onFollowUiFontScaleChanged,
+                )
+                AnimatedVisibility(
+                    visible = !settings.followUiFontScale,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
+                ) {
+                    Column {
+                        SettingsDivider()
+                        SettingsSliderRow(
+                            title = stringResource(R.string.settings_content_font_size_label),
+                            valueLabel = settings.contentFontScalePreference.label(),
+                            value = FontScalePreference.entries.indexOf(settings.contentFontScalePreference).toFloat(),
+                            valueRange = 0f..FontScalePreference.entries.lastIndex.toFloat(),
+                            steps = (FontScalePreference.entries.size - 2).coerceAtLeast(0),
+                            onValueChange = { onContentFontScaleSelected(FontScalePreference.entries[it.toInt().coerceIn(FontScalePreference.entries.indices)]) },
+                        )
+                    }
                 }
             }
         }
         item {
-            AppearanceSectionLabel(R.string.settings_ui_font_size_label)
-            LabeledDiscreteSlider(
-                titleRes = R.string.settings_ui_font_size_label,
-                selectedLabel = settings.fontScalePreference.label(),
-                labels = FontScalePreference.entries.map { it.label() },
-                selectedIndex = FontScalePreference.entries.indexOf(settings.fontScalePreference),
-                onSelectedIndex = { onFontScaleSelected(FontScalePreference.entries[it]) },
-                showTitle = false,
-            )
-        }
-        item {
-            FollowFontScaleRow(
-                checked = settings.followUiFontScale,
-                onCheckedChange = onFollowUiFontScaleChanged,
-            )
-            AnimatedVisibility(
-                visible = !settings.followUiFontScale,
-                enter = expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(150, easing = ExpressiveMotion.EmphasizedDecelerate)),
-                exit = shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut(tween(150, easing = ExpressiveMotion.EmphasizedAccelerate)),
-            ) {
-                Column(modifier = Modifier.padding(top = 16.dp)) {
-                    AppearanceSectionLabel(R.string.settings_content_font_size_label)
-                    LabeledDiscreteSlider(
-                        titleRes = R.string.settings_content_font_size_label,
-                        selectedLabel = settings.contentFontScalePreference.label(),
-                        labels = FontScalePreference.entries.map { it.label() },
-                        selectedIndex = FontScalePreference.entries.indexOf(settings.contentFontScalePreference),
-                        onSelectedIndex = { onContentFontScaleSelected(FontScalePreference.entries[it]) },
-                        showTitle = false,
-                    )
+            SettingsGroup(label = stringResource(R.string.settings_layout_label)) {
+                SettingsBody(stringResource(R.string.settings_layout_desc))
+                val options = listOf(FabPlacement.LEFT, FabPlacement.RIGHT)
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
+                    options.forEachIndexed { index, placement ->
+                        SegmentedButton(
+                            selected = placement == settings.fabPlacement,
+                            onClick = { onFabPlacementSelected(placement) },
+                            shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                            icon = {
+                                SegmentedButtonDefaults.Icon(
+                                    active = placement == settings.fabPlacement,
+                                    inactiveContent = {
+                                        Icon(
+                                            if (placement == FabPlacement.LEFT) Icons.AutoMirrored.Outlined.KeyboardArrowLeft else Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(SegmentedButtonDefaults.IconSize),
+                                        )
+                                    },
+                                )
+                            },
+                        ) { Text(placement.label(), maxLines = 1) }
+                    }
                 }
             }
-        }
-        item {
-            AppearanceSectionLabel(R.string.settings_layout_label)
-            Text(
-                text = stringResource(R.string.settings_layout_desc),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth().padding(start = 6.dp, bottom = 10.dp),
-            )
-            FabPlacementSelector(
-                selected = settings.fabPlacement,
-                onSelected = onFabPlacementSelected,
-            )
         }
     }
 }
 
+/** Selectable tile: tonal with primary outline when selected. Grows with font scale instead of clipping. */
 @Composable
-private fun AppearanceHeader(onBack: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                contentDescription = stringResource(R.string.action_back),
-            )
-        }
-        Text(
-            text = stringResource(R.string.settings_appearance),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(modifier = Modifier.size(48.dp))
-    }
-}
-
-@Composable
-private fun AppearanceSectionLabel(@StringRes labelRes: Int) {
-    Text(
-        text = stringResource(labelRes),
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.fillMaxWidth().padding(start = 2.dp, top = 6.dp, bottom = 4.dp),
-    )
-}
-
-@Composable
-private fun ThemeModeCard(
+private fun ChoiceTile(
     modifier: Modifier,
-    themePreference: ThemePreference,
+    icon: ImageVector,
+    label: String,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val icon = when (themePreference) {
-        ThemePreference.SYSTEM -> Icons.Outlined.SettingsBrightness
-        ThemePreference.LIGHT -> Icons.Outlined.LightMode
-        ThemePreference.DARK -> Icons.Outlined.DarkMode
-        ThemePreference.AMOLED -> Icons.Outlined.Palette
-    }
-    val targetCardColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
-    val targetContentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-    val targetIconBg = if (selected) MaterialTheme.colorScheme.inverseSurface else MaterialTheme.colorScheme.surface
-    val targetIconTint = if (selected) MaterialTheme.colorScheme.inverseOnSurface else MaterialTheme.colorScheme.onSurfaceVariant
-
-    val cardColor by androidx.compose.animation.animateColorAsState(
-        targetValue = targetCardColor,
-        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
-        label = "themeCardColor"
-    )
-    val contentColor by androidx.compose.animation.animateColorAsState(
-        targetValue = targetContentColor,
-        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
-        label = "themeContentColor"
-    )
-    val iconBg by androidx.compose.animation.animateColorAsState(
-        targetValue = targetIconBg,
-        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
-        label = "themeIconBg"
-    )
-    val iconTint by androidx.compose.animation.animateColorAsState(
-        targetValue = targetIconTint,
-        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
-        label = "themeIconTint"
-    )
-
-    ElevatedCard(
-        modifier = modifier
-            .height(124.dp)
-            .expressiveClickable(onClick = onClick),
-        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_hero)),
-        colors = CardDefaults.elevatedCardColors(containerColor = cardColor),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
+    Surface(
+        modifier = modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card)),
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
-        Box(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .align(Alignment.TopCenter)
-                    .clip(CircleShape)
-                    .background(iconBg),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = if (selected) Icons.Outlined.Check else icon,
-                    contentDescription = null,
-                    tint = iconTint,
-                )
-            }
-            Text(
-                text = themePreference.label(),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = contentColor,
-                maxLines = 1,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ColorSourceSelector(
-    selected: ColorSource,
-    onSelected: (ColorSource) -> Unit,
-) {
-    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-        ColorSource.entries.forEachIndexed { index, source ->
-            SegmentedButton(
-                selected = source == selected,
-                onClick = { onSelected(source) },
-                shape = SegmentedButtonDefaults.itemShape(index, ColorSource.entries.size),
-                label = {
-                    Text(
-                        text = source.label(),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                },
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    inactiveContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    inactiveContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-            )
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
-private fun LabeledDiscreteSlider(
-    @StringRes titleRes: Int,
-    selectedLabel: String,
-    labels: List<String>,
-    selectedIndex: Int,
-    onSelectedIndex: (Int) -> Unit,
-    showTitle: Boolean = true,
-) {
-    AppearancePanel {
-        if (showTitle) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(titleRes),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = selectedLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-        Slider(
-            value = selectedIndex.toFloat(),
-            onValueChange = { value ->
-                onSelectedIndex(value.roundToInt().coerceIn(labels.indices))
-            },
-            valueRange = 0f..labels.lastIndex.toFloat(),
-            steps = (labels.size - 2).coerceAtLeast(0),
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                activeTickColor = MaterialTheme.colorScheme.onPrimary,
-                inactiveTickColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-            ),
-        )
-        Row(modifier = Modifier.fillMaxWidth()) {
-            labels.forEach { label ->
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun FontFamilyCard(
+private fun FontFamilyTile(
     modifier: Modifier,
     fontFamily: AppFontFamily,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val targetCardColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
-    val targetContentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-
-    val cardColor by androidx.compose.animation.animateColorAsState(
-        targetValue = targetCardColor,
-        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
-        label = "fontCardColor"
-    )
-    val contentColor by androidx.compose.animation.animateColorAsState(
-        targetValue = targetContentColor,
-        animationSpec = tween(ExpressiveMotion.DurationShort, easing = ExpressiveMotion.EmphasizedDecelerate),
-        label = "fontContentColor"
-    )
-
-    Column(
-        modifier = modifier.expressiveClickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally
+    Surface(
+        modifier = modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_card)),
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(108.dp)
-                .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_hero)))
-                .background(cardColor),
-            contentAlignment = Alignment.Center,
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
                 text = stringResource(R.string.settings_font_sample),
-                style = MaterialTheme.typography.headlineLarge.copy(
-                    fontFamily = fontFamily.previewFamily(),
-                    fontWeight = FontWeight.SemiBold,
-                ),
-                color = contentColor,
+                style = MaterialTheme.typography.headlineMedium.copy(fontFamily = fontFamily.previewFamily(), fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
             )
-        }
-        Text(
-            text = fontFamily.label(),
-            style = MaterialTheme.typography.labelMedium,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-    }
-}
-
-@Composable
-private fun FollowFontScaleRow(
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_lg)))
-            .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 6.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = stringResource(R.string.settings_follow_ui_font_scale_label),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun FabPlacementSelector(
-    selected: FabPlacement,
-    onSelected: (FabPlacement) -> Unit,
-) {
-    val options = listOf(FabPlacement.LEFT, FabPlacement.RIGHT)
-    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-        options.forEachIndexed { index, placement ->
-            val icon = if (placement == FabPlacement.LEFT) {
-                Icons.AutoMirrored.Outlined.KeyboardArrowLeft
-            } else {
-                Icons.AutoMirrored.Outlined.KeyboardArrowRight
-            }
-            SegmentedButton(
-                selected = placement == selected,
-                onClick = { onSelected(placement) },
-                shape = SegmentedButtonDefaults.itemShape(index, options.size),
-                icon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                label = {
-                    Text(
-                        text = placement.label(),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                },
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    inactiveContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    inactiveContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
+            Text(
+                text = fontFamily.label(),
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
             )
         }
     }
 }
 
-@Composable
-private fun AppearancePanel(content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            content = content,
-        )
-    }
+private fun ThemePreference.icon(): ImageVector = when (this) {
+    ThemePreference.SYSTEM -> Icons.Outlined.SettingsBrightness
+    ThemePreference.LIGHT -> Icons.Outlined.LightMode
+    ThemePreference.DARK -> Icons.Outlined.DarkMode
+    ThemePreference.AMOLED -> Icons.Outlined.Palette
 }
 
 @Composable

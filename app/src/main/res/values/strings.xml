@@ -99,6 +99,12 @@
     <string name="field_original_title">Original-script title</string>
     <string name="field_title_in_language">Title in %1$s</string>
     <string name="settings_primary_language_title">Primary language</string>
+    <string name="settings_share_catalog_title">Share with other apps</string>
+    <string name="settings_share_catalog_enabled">Share catalog with other apps</string>
+    <string name="settings_share_catalog_body">Lets apps you approve, such as Vayana, read titles, authors and shelves. Loans and personal notes are never shared.</string>
+    <string name="permission_read_catalog_label">Read your Home Library catalog</string>
+    <string name="permission_read_catalog_description">Read your Home Library catalog (titles, authors, shelves). Loans and personal notes are never shared.</string>
+    <string name="book_not_found">Book not found</string>
     <string name="settings_primary_language_body">Titles are entered in this language by default. Books in a different language get an extra field for the title in that language.</string>
     <string name="field_tags">Genres and tags</string>
     <string name="field_isbn">ISBN</string>
@@ -232,6 +238,8 @@
     <string name="settings_default_library_view">Default Library view</string>
     <string name="settings_default_sort">Default sort</string>
     <string name="settings_last_backup">Last complete backup: %1$s</string>
+    <string name="settings_backup_reminder_title">Backup reminder</string>
+    <string name="settings_reminder_off">Off</string>
     <string name="settings_backup_reminder_disabled">Backup reminder disabled</string>
     <string name="settings_backup_reminder_desc">Highlight backups when the last complete backup is older than %1$d days.</string>
     <string name="settings_data_exchange_title">JSON and CSV exchange</string>
