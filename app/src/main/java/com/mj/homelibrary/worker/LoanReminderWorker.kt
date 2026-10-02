@@ -39,7 +39,7 @@ class LoanReminderWorker(
             DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it))
         }.orEmpty()
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_library)
             .setContentTitle(applicationContext.getString(R.string.notification_due_title))
             .setContentText(applicationContext.getString(R.string.notification_due_body, book.title, dueDate))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
