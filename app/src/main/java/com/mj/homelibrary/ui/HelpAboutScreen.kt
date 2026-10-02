@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -120,15 +121,7 @@ fun HelpAboutScreen(onBack: () -> Unit) {
         )
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = dimensionResource(R.dimen.space_screen)),
-        contentPadding = PaddingValues(bottom = dimensionResource(R.dimen.space_2xl)),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        item { HelpHeader(onBack = onBack) }
+    SettingsPage(titleRes = R.string.help_screen_title, onBack = onBack) {
         item {
             Text(
                 text = stringResource(R.string.help_welcome_title),
@@ -188,60 +181,28 @@ fun HelpAboutScreen(onBack: () -> Unit) {
 
 @Composable
 fun LocalDataPrivacyScreen(onBack: () -> Unit) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = dimensionResource(R.dimen.space_screen)),
-        contentPadding = PaddingValues(bottom = dimensionResource(R.dimen.space_2xl)),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        item { HelpHeader(titleRes = R.string.settings_privacy_data_title, onBack = onBack) }
+    SettingsPage(titleRes = R.string.settings_privacy_data_title, onBack = onBack) {
         item {
-            PrivacyInfoCard(
-                icon = Icons.Outlined.Security,
-                titleRes = R.string.privacy_local_title,
-                bodyRes = R.string.privacy_local_body,
-            )
+            SettingsGroup {
+                SettingsRow(
+                    icon = Icons.Outlined.Security,
+                    title = stringResource(R.string.privacy_local_title),
+                    supporting = stringResource(R.string.privacy_local_body),
+                )
+                SettingsDivider()
+                SettingsRow(
+                    icon = Icons.Outlined.Search,
+                    title = stringResource(R.string.privacy_lookup_title),
+                    supporting = stringResource(R.string.privacy_lookup_body),
+                )
+                SettingsDivider()
+                SettingsRow(
+                    icon = Icons.Outlined.CloudDone,
+                    title = stringResource(R.string.privacy_backup_title),
+                    supporting = stringResource(R.string.privacy_backup_body),
+                )
+            }
         }
-        item {
-            PrivacyInfoCard(
-                icon = Icons.Outlined.Search,
-                titleRes = R.string.privacy_lookup_title,
-                bodyRes = R.string.privacy_lookup_body,
-            )
-        }
-        item {
-            PrivacyInfoCard(
-                icon = Icons.Outlined.CloudDone,
-                titleRes = R.string.privacy_backup_title,
-                bodyRes = R.string.privacy_backup_body,
-            )
-        }
-    }
-}
-
-@Composable
-private fun HelpHeader(
-    @StringRes titleRes: Int = R.string.help_screen_title,
-    onBack: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = dimensionResource(R.dimen.space_lg)),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.action_back))
-        }
-        Text(
-            text = stringResource(titleRes),
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(modifier = Modifier.size(48.dp))
     }
 }
 
@@ -265,7 +226,7 @@ private fun HelpOnboardingCards(cards: List<HomeLibraryHelpCard>) {
                 Surface(
                     modifier = Modifier
                         .weight(1f)
-                        .height(156.dp),
+                        .heightIn(min = 140.dp),
                     shape = RoundedCornerShape(dimensionResource(R.dimen.corner_xl)),
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                 ) {
@@ -283,8 +244,6 @@ private fun HelpOnboardingCards(cards: List<HomeLibraryHelpCard>) {
                             text = stringResource(card.bodyRes),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }

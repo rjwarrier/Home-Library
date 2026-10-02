@@ -105,6 +105,7 @@ import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Handshake
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Outbound
@@ -173,6 +174,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -212,6 +214,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.mj.homelibrary.R
+import com.mj.homelibrary.ShowBookRequest
 import com.mj.homelibrary.data.AppFontFamily
 import com.mj.homelibrary.data.AppearanceSettings
 import com.mj.homelibrary.data.BackgroundTintLevel
@@ -240,6 +243,8 @@ import com.mj.homelibrary.ui.theme.m3DialogEnterTransition
 import com.mj.homelibrary.ui.theme.m3DialogExitTransition
 import com.mj.homelibrary.ui.theme.m3TabTransition
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Year
@@ -281,7 +286,12 @@ private fun List<String>.distinctSorted(): List<String> =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewModel = viewModel()) {
+fun HomeLibraryApp(
+    startInScanMode: Boolean = false,
+    showBookRequest: ShowBookRequest? = null,
+    onShowBookHandled: () -> Unit = {},
+    viewModel: HomeLibraryViewModel = viewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val appearanceSettings by viewModel.appearanceSettings.collectAsStateWithLifecycle()
     val librarySettings by viewModel.librarySettings.collectAsStateWithLifecycle()
@@ -345,6 +355,22 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
         if (startInScanMode) {
             scannerInitialMode = ScannerMode.BARCODE
             showScanner = true
+        }
+    }
+
+    val bookNotFoundMessage = stringResource(R.string.book_not_found)
+    LaunchedEffect(showBookRequest) {
+        val request = showBookRequest ?: return@LaunchedEffect
+        val bookId = viewModel.findBookIdForShow(request.syncUuid, request.isbn13)
+        selectedTab = HomeTab.Library
+        settingsRoute = SettingsRoute.Main
+        if (bookId == null) {
+            onShowBookHandled()
+            snackbarHostState.showSnackbar(bookNotFoundMessage)
+        } else {
+            // The catalog flow may still be loading when the app is launched from another app.
+            selectedBook = snapshotFlow { state.itemByBookId[bookId] }.filterNotNull().first()
+            onShowBookHandled()
         }
     }
 
@@ -548,6 +574,7 @@ fun HomeLibraryApp(startInScanMode: Boolean = false, viewModel: HomeLibraryViewM
                     onDefaultSortChange = viewModel::setSort,
                     onReadingGoalChange = viewModel::setReadingGoal,
                     onPrimaryLanguageChange = viewModel::setPrimaryLanguage,
+                    onShareCatalogChange = viewModel::setShareCatalogWithOtherApps,
                     onAddMainGenre = viewModel::addMainGenre,
                     onRemoveMainGenre = viewModel::removeMainGenre,
                     onAddSubGenre = viewModel::addSubGenre,
@@ -966,7 +993,7 @@ private fun ScreenHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = dimensionResource(R.dimen.space_lg)),
+            .padding(top = dimensionResource(R.dimen.space_xs)),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top,
     ) {
@@ -3392,6 +3419,7 @@ private fun SettingsScreen(
     onDefaultSortChange: (BookSortCode) -> Unit,
     onReadingGoalChange: (Int) -> Unit,
     onPrimaryLanguageChange: (String) -> Unit,
+    onShareCatalogChange: (Boolean) -> Unit,
     onAddMainGenre: (String) -> Unit,
     onRemoveMainGenre: (String) -> Unit,
     onAddSubGenre: (String, String) -> Unit,
@@ -3456,6 +3484,7 @@ private fun SettingsScreen(
             onDefaultSortChange = onDefaultSortChange,
             onReadingGoalChange = onReadingGoalChange,
             onPrimaryLanguageChange = onPrimaryLanguageChange,
+            onShareCatalogChange = onShareCatalogChange,
             onAddMainGenre = onAddMainGenre,
             onRemoveMainGenre = onRemoveMainGenre,
             onAddSubGenre = onAddSubGenre,
@@ -3504,6 +3533,7 @@ private fun SettingsRouteContent(
     onDefaultSortChange: (BookSortCode) -> Unit,
     onReadingGoalChange: (Int) -> Unit,
     onPrimaryLanguageChange: (String) -> Unit,
+    onShareCatalogChange: (Boolean) -> Unit,
     onAddMainGenre: (String) -> Unit,
     onRemoveMainGenre: (String) -> Unit,
     onAddSubGenre: (String, String) -> Unit,
@@ -3546,6 +3576,7 @@ private fun SettingsRouteContent(
                 onDefaultSortChange = onDefaultSortChange,
                 onReadingGoalChange = onReadingGoalChange,
                 onPrimaryLanguageChange = onPrimaryLanguageChange,
+                onShareCatalogChange = onShareCatalogChange,
             )
             return
         }
@@ -3601,135 +3632,74 @@ private fun SettingsRouteContent(
         )
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.space_md)),
-            contentPadding = PaddingValues(bottom = dimensionResource(R.dimen.space_xl)),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            contentPadding = PaddingValues(top = 4.dp, bottom = dimensionResource(R.dimen.space_xl)),
         ) {
             item {
-                AppearanceEntryCard(onOpenAppearance = onOpenAppearance)
-            }
-            item {
-                SettingsEntryCard(
+                SettingsHeroCard(
                     icon = Icons.Outlined.AutoStories,
-                    title = stringResource(R.string.settings_library_preferences),
-                    body = stringResource(R.string.settings_library_preferences_subtitle),
-                    onClick = onOpenLibraryPreferences,
+                    title = stringResource(R.string.app_name),
+                    subtitle = stringResource(R.string.settings_meta, state.allBooks.size, state.locations.size, state.loans.size),
                 )
             }
             item {
-                SettingsEntryCard(
-                    icon = Icons.Outlined.Category,
-                    title = stringResource(R.string.settings_genre_management_title),
-                    body = stringResource(R.string.settings_genre_management_subtitle),
-                    onClick = onOpenGenreManagement,
-                )
+                SettingsGroup(label = stringResource(R.string.settings_group_personalise)) {
+                    SettingsRow(
+                        icon = Icons.Outlined.Palette,
+                        title = stringResource(R.string.settings_appearance),
+                        supporting = stringResource(R.string.settings_appearance_subtitle),
+                        onClick = onOpenAppearance,
+                    )
+                    SettingsDivider()
+                    SettingsRow(
+                        icon = Icons.Outlined.AutoStories,
+                        title = stringResource(R.string.settings_library_preferences),
+                        supporting = stringResource(R.string.settings_library_preferences_subtitle),
+                        onClick = onOpenLibraryPreferences,
+                    )
+                    SettingsDivider()
+                    SettingsRow(
+                        icon = Icons.Outlined.Category,
+                        title = stringResource(R.string.settings_genre_management_title),
+                        supporting = stringResource(R.string.settings_genre_management_subtitle),
+                        onClick = onOpenGenreManagement,
+                    )
+                    SettingsDivider()
+                    SettingsRow(
+                        icon = Icons.Outlined.Translate,
+                        title = stringResource(R.string.settings_ocr_language_packs_title),
+                        supporting = stringResource(R.string.settings_ocr_language_packs_desc),
+                        onClick = onOpenOcrLanguages,
+                    )
+                }
             }
             item {
-                SettingsEntryCard(
-                    icon = Icons.Outlined.Translate,
-                    title = stringResource(R.string.settings_ocr_language_packs_title),
-                    body = stringResource(R.string.settings_ocr_language_packs_desc),
-                    onClick = onOpenOcrLanguages,
-                )
+                SettingsGroup(label = stringResource(R.string.settings_group_data)) {
+                    SettingsRow(
+                        icon = Icons.Outlined.CloudDone,
+                        title = stringResource(R.string.settings_data_recovery_title),
+                        supporting = stringResource(R.string.settings_data_recovery_subtitle),
+                        onClick = onOpenDataRecovery,
+                    )
+                    SettingsDivider()
+                    SettingsRow(
+                        icon = Icons.Outlined.Security,
+                        title = stringResource(R.string.settings_privacy_data_title),
+                        supporting = stringResource(R.string.settings_privacy_data_subtitle),
+                        onClick = onOpenPrivacyData,
+                    )
+                }
             }
             item {
-                SettingsEntryCard(
-                    icon = Icons.Outlined.CloudDone,
-                    title = stringResource(R.string.settings_data_recovery_title),
-                    body = stringResource(R.string.settings_data_recovery_subtitle),
-                    onClick = onOpenDataRecovery,
-                )
+                SettingsGroup(label = stringResource(R.string.settings_group_about)) {
+                    SettingsRow(
+                        icon = Icons.Outlined.Info,
+                        title = stringResource(R.string.settings_help_about),
+                        supporting = stringResource(R.string.settings_help_subtitle),
+                        onClick = onOpenHelpAbout,
+                    )
+                }
             }
-            item {
-                SettingsEntryCard(
-                    icon = Icons.Outlined.Security,
-                    title = stringResource(R.string.settings_privacy_data_title),
-                    body = stringResource(R.string.settings_privacy_data_subtitle),
-                    onClick = onOpenPrivacyData,
-                )
-            }
-            item {
-                SettingsEntryCard(
-                    icon = Icons.Outlined.Info,
-                    title = stringResource(R.string.settings_help_about),
-                    body = stringResource(R.string.settings_help_subtitle),
-                    onClick = onOpenHelpAbout,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AppearanceEntryCard(onOpenAppearance: () -> Unit) {
-    androidx.compose.material3.Surface(
-        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .expressiveClickable(onClick = onOpenAppearance),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md)))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Outlined.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.settings_appearance), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(stringResource(R.string.settings_appearance_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 19.sp)
-            }
-            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(270f))
-        }
-    }
-}
-
-@Composable
-private fun SettingsEntryCard(
-    icon: ImageVector,
-    title: String,
-    body: String,
-    onClick: () -> Unit,
-) {
-    androidx.compose.material3.Surface(
-        shape = RoundedCornerShape(dimensionResource(R.dimen.corner_prominent)),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .expressiveClickable(onClick = onClick),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(dimensionResource(R.dimen.corner_md)))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 19.sp)
-            }
-            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(270f))
         }
     }
 }
